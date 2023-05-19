@@ -494,5 +494,5 @@ function removeSourceObservers(node: Computation, index: number) {
 }
 
 function isPromise(v: any): v is Promise<any> {
-  return typeof v === "object" && typeof v.then === "function";
+  return (typeof v === "object" || typeof v === "function") && typeof v?.then === "function";
 }
