@@ -1,0 +1,42 @@
+{
+  "name": "bubble-reactivity",
+  "version": "0.0.0",
+  "description": "",
+  "license": "ISC",
+  "type": "module",
+  "main": "dist/node.cjs",
+  "module": "dist/prod.js",
+  "types": "dist/types/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rimraf dist && tsup && pnpm types",
+    "types": "tsc -p tsconfig.build.json",
+    "format": "prettier --write .",
+    "test": "vitest",
+    "gc": "node --expose-gc ./vitest.js",
+    "coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@types/node": "^20.2.1",
+    "@vitest/coverage-c8": "^0.31.1",
+    "prettier": "^2.8.8",
+    "rimraf": "^5.0.1",
+    "tsup": "^6.7.0",
+    "typescript": "5.0.4",
+    "vite": "^4.3.8",
+    "vitest": "^0.31.1"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": {
+        "test": "./dist/dev.js",
+        "development": "./dist/dev.js",
+        "default": "./dist/prod.js"
+      },
+      "require": "./dist/node.cjs"
+    }
+  }
+}

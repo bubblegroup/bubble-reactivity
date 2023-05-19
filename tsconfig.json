@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "target": "esnext",
+    "newLine": "LF",
+    "moduleResolution": "node",
+    "noImplicitAny": true,
+    "strict": true,
+    "outDir": "dist/types",
+    "module": "esnext",
+    "types": ["vitest/globals"]
+  },
+  "include": ["src", "tests"],
+  "exclude": ["dist", "node_modules"]
+}
