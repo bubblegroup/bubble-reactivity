@@ -267,12 +267,12 @@ export class Computation<T = any> extends Owner {
   _observers: Computation<any>[] | null;
   _lstate: boolean | Computation<boolean>;
   _value: T | undefined;
-  _compute: null | (() => T);
+  _compute: null | (() => T | Promise<T>);
   name: string | undefined;
   _equals: false | ((a: T, b: T) => boolean) = (a, b) => a === b;
   constructor(
-    initialValue: T | undefined,
-    compute: null | (() => T),
+    initialValue: T | Promise<T> | undefined,
+    compute: null | (() => T | Promise<T>),
     options?: MemoOptions<T>
   ) {
     super(compute === null);
@@ -341,11 +341,11 @@ export class Computation<T = any> extends Owner {
 
   write(value: T): T {
     if (!this._equals || !this._equals(this._value!, value)) {
-      if (isPromise(this._value)) {
+      if (isPromise(value)) {
         if (typeof this._lstate === "boolean") this._lstate = true;
         else this._lstate.write(true);
-        this._value.then((value) => {
-          this.write(value);
+        value.then((v) => {
+          this.write(v);
           if (typeof this._lstate === "boolean") this._lstate = false;
           else this._lstate.write(false);
         });
@@ -494,5 +494,8 @@ function removeSourceObservers(node: Computation, index: number) {
 }
 
 function isPromise(v: any): v is Promise<any> {
-  return (typeof v === "object" || typeof v === "function") && typeof v?.then === "function";
+  return (
+    (typeof v === "object" || typeof v === "function") &&
+    typeof v?.then === "function"
+  );
 }
