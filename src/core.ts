@@ -29,6 +29,11 @@ function flushEffects() {
   queueMicrotask(runEffects);
 }
 
+/**
+ * When reexecuting nodes, we want to be extra careful to avoid double execution of nested owners
+ * In particular, it is important that we check all of our parents to see if they will rerun
+ * See tests/createEffect: "should run parent effect before child effect"
+ */
 function runTop(node: Computation<any>) {
   let ancestors = [node];
   while ((node = node._parent as Computation<any>)) {
@@ -84,7 +89,7 @@ export function untrack<T>(fn: () => T): T {
 
 /**
  * By default, signal updates are batched on the microtask queue which is an async process. You can
- * flush the queue synchronously to get the latest updates by calling `tick()`.
+ * flush the queue synchronously to get the latest updates by calling `flushSync()`.
  */
 export function flushSync(): void {
   if (!runningEffects) runEffects();
@@ -99,6 +104,7 @@ export function getOwner(): Owner | null {
 
 /**
  * Runs the given function in the given owner so context and error handling continue to work.
+ * This function is pretty advanced, and usually there is a simpler way of modeling the problem
  */
 export function runWithOwner<T>(
   owner: Owner | null,
