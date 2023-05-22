@@ -1,4 +1,5 @@
-import { Computation } from "../src/core";
+import { createEffect } from "../src";
+import { Computation, Effect, flushSync } from "../src/core";
 
 it("should propagate loading when calling read", async () => {
   let resolve: (value: unknown) => void;
@@ -86,4 +87,23 @@ it("should handle async memos chaining", async () => {
   expect(comp2.read()).toBe(1);
   expect(comp1.state().read()).toBe(false);
   expect(comp2.state().read()).toBe(true);
+});
+
+it("should handle effects watching async memo state", async () => {
+  let resolve1: (value: number) => void;
+  const comp1 = new Computation<number | undefined>(undefined, () => {
+    return new Promise<number>((r) => (resolve1 = r));
+  });
+  let executions = 0;
+  createEffect(() => {
+    executions++;
+    comp1.state().read();
+  });
+  comp1.read();
+  flushSync();
+  expect(executions).toBe(1);
+  resolve1!(1);
+  await Promise.resolve();
+  flushSync();
+  expect(executions).toBe(2);
 });

@@ -39,10 +39,9 @@ export function createEffect<T>(
   initialValue?: T,
   options?: { name?: string }
 ): void {
-  const node = new Effect(
+  new Effect(
     initialValue,
     effect,
     __DEV__ ? { name: options?.name ?? "effect" } : void 0
   );
-  update(node);
 }

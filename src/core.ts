@@ -54,15 +54,17 @@ function runEffects() {
 
   runningEffects = true;
 
-  for (let i = 0; i < effects.length; i++) {
-    if (effects[i]._state !== STATE_CLEAN) {
-      runTop(effects[i]);
+  try {
+    for (let i = 0; i < effects.length; i++) {
+      if (effects[i]._state !== STATE_CLEAN) {
+        runTop(effects[i]);
+      }
     }
+  } finally {
+    effects = [];
+    scheduledEffects = false;
+    runningEffects = false;
   }
-
-  effects = [];
-  scheduledEffects = false;
-  runningEffects = false;
 }
 
 /**
@@ -268,12 +270,13 @@ class Owner {
 
 interface SourceType {
   _observers: ObserverType[] | null;
-  updateIfNecessary: () => void;
+  updateIfNecessary(): void;
 }
 
 interface ObserverType {
   _sources: SourceType[] | null;
-  notify: (state: number) => void;
+  notify(state: number): void;
+  state(): LoadingState | null;
 }
 
 export class Computation<T = any> extends Owner {
@@ -298,7 +301,7 @@ export class Computation<T = any> extends Owner {
     this._observers = null;
     this._compute = compute ?? null;
     if (isPromise(initialValue)) {
-      this._lstate = new LoadingState(1);
+      this._lstate = new LoadingState(this, 1);
       this._value = undefined;
       initialValue.then((value) => {
         this.write(value);
@@ -317,7 +320,7 @@ export class Computation<T = any> extends Owner {
   read(): T {
     if (this._state === STATE_DISPOSED) return this._value!;
 
-    memoLoading += this._lstate == null ? 0 : +(this._lstate._value !== 0);
+    memoLoading += this._lstate == null ? 0 : +this.state().read();
 
     if (currentObserver) {
       if (
@@ -337,7 +340,7 @@ export class Computation<T = any> extends Owner {
 
   state(): LoadingState {
     if (!this._lstate) {
-      this._lstate = new LoadingState(0);
+      this._lstate = new LoadingState(this, 0);
     }
     return this._lstate;
   }
@@ -387,9 +390,11 @@ export class Computation<T = any> extends Owner {
 }
 
 class LoadingState {
-  _observers: Computation[] | null;
+  _observers: ObserverType[] | null;
   _value: number;
-  constructor(value: number) {
+  _origin: Computation;
+  constructor(origin: Computation, value: number) {
+    this._origin = origin;
     this._observers = null;
     this._value = value;
   }
@@ -416,15 +421,26 @@ class LoadingState {
     const wasZero = Math.min(this._value, 1);
     const isZero = Math.min(value, 1);
     this._value = value;
-    if (wasZero != isZero && this._observers) {
-      for (let i = 0; i < this._observers.length; i++) {
-        this._observers[i].state().change(wasZero - isZero);
+    if (wasZero != isZero) {
+      if (this._origin._observers) {
+        for (let i = 0; i < this._origin._observers.length; i++) {
+          this._origin._observers[i].state()!.change(wasZero - isZero);
+        }
+      }
+      if (this._observers) {
+        for (let i = 0; i < this._observers.length; i++) {
+          this._observers[i].notify(STATE_DIRTY);
+        }
       }
     }
   }
 }
 
-export class Effect extends Computation {
+export class Effect<T = any> extends Computation<T> {
+  constructor(initialValue: T, compute: () => T, options?: MemoOptions<T>) {
+    super(initialValue, compute, options);
+    effects.push(this);
+  }
   notify(state: number): void {
     if (this._state >= state) return;
 
@@ -434,14 +450,10 @@ export class Effect extends Computation {
     }
 
     this._state = state;
-    if (this._observers) {
-      for (let i = 0; i < this._observers.length; i++) {
-        this._observers[i].notify(STATE_CHECK);
-      }
-    }
   }
-  write(value: any) {
+  write(value: T) {
     this._value = value;
+    return value;
   }
 }
 
@@ -509,22 +521,6 @@ export function update(node: Computation) {
     }
     node.state().set(memoLoading);
   } catch (error) {
-    if (
-      __DEV__ &&
-      !__TEST__ &&
-      !node._init &&
-      typeof node._value === "undefined"
-    ) {
-      console.error(
-        `computed \`${node.name}\` threw error during first run, this can be fatal.` +
-          "\n\nSolutions:\n\n" +
-          "1. Set the `initial` option to silence this error",
-        "\n2. Or, use an `effect` if the return value is not being used",
-        "\n\n",
-        error
-      );
-    }
-
     handleError(node, error);
 
     if (node._state === STATE_DIRTY) {

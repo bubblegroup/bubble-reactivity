@@ -17,6 +17,7 @@ it("should be invoked when computation is disposed", () => {
     return dispose;
   });
 
+  flushSync();
   stopEffect();
 
   expect(disposeA).toHaveBeenCalled();
@@ -67,6 +68,7 @@ it("should clean up in reverse order", () => {
     return dispose;
   });
 
+  flushSync();
   stopEffect();
 
   expect(disposeB).toHaveBeenCalled();
