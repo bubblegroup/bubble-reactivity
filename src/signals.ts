@@ -1,4 +1,4 @@
-import { update, Computation } from "./core";
+import { update, Computation, Effect } from "./core";
 import type { MemoOptions, Accessor, SignalOptions, Signal } from "./types";
 
 /**
@@ -39,12 +39,10 @@ export function createEffect<T>(
   initialValue?: T,
   options?: { name?: string }
 ): void {
-  const node = new Computation(
+  const node = new Effect(
     initialValue,
     effect,
     __DEV__ ? { name: options?.name ?? "effect" } : void 0
   );
-
-  node._effect = true;
   update(node);
 }

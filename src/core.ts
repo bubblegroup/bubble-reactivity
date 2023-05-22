@@ -11,10 +11,10 @@ let scheduledEffects = false,
   runningEffects = false,
   currentOwner: Owner | null = null,
   currentObserver: Computation | null = null,
-  newSources: Computation[] | null = null,
-  memoLoading = false,
+  newSources: SourceType[] | null = null,
+  memoLoading = 0,
   newSourcesIndex = 0,
-  effects: Computation[] = [];
+  effects: Effect[] = [];
 
 const HANDLER = Symbol(__DEV__ ? "ERROR_HANDLER" : 0),
   // For more information about this graph tracking scheme see Reactively:
@@ -42,7 +42,7 @@ function runTop(node: Computation<any>) {
     }
   }
   for (let i = ancestors.length - 1; i >= 0; i--) {
-    updateIfNecessary(ancestors[i]);
+    ancestors[i].updateIfNecessary();
   }
 }
 
@@ -266,12 +266,21 @@ class Owner {
   }
 }
 
+interface SourceType {
+  _observers: ObserverType[] | null;
+  updateIfNecessary: () => void;
+}
+
+interface ObserverType {
+  _sources: SourceType[] | null;
+  notify: (state: number) => void;
+}
+
 export class Computation<T = any> extends Owner {
   _init: boolean;
-  _effect: boolean;
-  _sources: Computation<any>[] | null;
-  _observers: Computation<any>[] | null;
-  _lstate: boolean | Computation<boolean>;
+  _sources: SourceType[] | null;
+  _observers: ObserverType[] | null;
+  _lstate: LoadingState | null;
   _value: T | undefined;
   _compute: null | (() => T | Promise<T>);
   name: string | undefined;
@@ -285,23 +294,20 @@ export class Computation<T = any> extends Owner {
 
     this._state = compute ? STATE_DIRTY : STATE_CLEAN;
     this._init = false;
-    this._effect = false;
     this._sources = null;
     this._observers = null;
+    this._compute = compute ?? null;
     if (isPromise(initialValue)) {
-      this._lstate = true;
+      this._lstate = new LoadingState(1);
       this._value = undefined;
       initialValue.then((value) => {
         this.write(value);
-        if (typeof this._lstate === "boolean") this._lstate = false;
-        else this._lstate.write(false);
+        this._lstate!.change(-1);
       });
     } else {
       this._value = initialValue;
-      this._lstate = false;
+      this._lstate = null;
     }
-
-    this._compute = compute ?? null;
 
     if (__DEV__)
       this.name = options?.name ?? (this._compute ? "computed" : "signal");
@@ -311,7 +317,9 @@ export class Computation<T = any> extends Owner {
   read(): T {
     if (this._state === STATE_DISPOSED) return this._value!;
 
-    if (currentObserver && !this._effect) {
+    memoLoading += this._lstate == null ? 0 : +(this._lstate._value !== 0);
+
+    if (currentObserver) {
       if (
         !newSources &&
         currentObserver._sources &&
@@ -322,44 +330,25 @@ export class Computation<T = any> extends Owner {
       else newSources.push(this);
     }
 
-    if (this._compute) updateIfNecessary(this);
+    if (this._compute) this.updateIfNecessary();
 
     return this._value!;
   }
 
-  state(): Computation<boolean> {
-    if (typeof this._lstate === "boolean") {
-      this._lstate = new Computation(this._lstate, null);
+  state(): LoadingState {
+    if (!this._lstate) {
+      this._lstate = new LoadingState(0);
     }
     return this._lstate;
   }
 
-  wait(): T {
-    if (!currentObserver) throw new Error("must wait inside computation");
-
-    if (
-      typeof this._lstate === "boolean" ? this._lstate : this._lstate._value
-    ) {
-      memoLoading = true;
-    }
-    return this.read();
-  }
-
   write(value: T): T {
     if (!this._equals || !this._equals(this._value!, value)) {
-      if (isPromise(value)) {
-        if (typeof this._lstate === "boolean") this._lstate = true;
-        else this._lstate.write(true);
-        value.then((v) => {
-          this.write(v);
-          if (typeof this._lstate === "boolean") this._lstate = false;
-          else this._lstate.write(false);
-        });
-      } else {
-        this._value = value;
+      memoLoading += setMaybePromise(this, value);
+      if (!isPromise(value)) {
         if (this._observers) {
           for (let i = 0; i < this._observers.length; i++) {
-            notify(this._observers[i], STATE_DIRTY);
+            this._observers[i].notify(STATE_DIRTY);
           }
         }
       }
@@ -367,23 +356,106 @@ export class Computation<T = any> extends Owner {
 
     return this._value!;
   }
-}
 
-function updateIfNecessary(node: Computation) {
-  if (node._state === STATE_CHECK) {
-    for (let i = 0; i < node._sources!.length; i++) {
-      updateIfNecessary(node._sources![i]);
-      if ((node._state as number) === STATE_DIRTY) {
-        // Stop the loop here so we won't trigger updates on other parents unnecessarily
-        // If our computation changes to no longer use some sources, we don't
-        // want to update() a source we used last time, but now don't use.
-        break;
+  notify(state: number) {
+    if (this._state >= state) return;
+
+    this._state = state;
+    if (this._observers) {
+      for (let i = 0; i < this._observers.length; i++) {
+        this._observers[i].notify(STATE_CHECK);
       }
     }
   }
 
-  if (node._state === STATE_DIRTY) update(node);
-  else node._state = STATE_CLEAN;
+  updateIfNecessary() {
+    if (this._state === STATE_CHECK) {
+      for (let i = 0; i < this._sources!.length; i++) {
+        this._sources![i].updateIfNecessary();
+        if ((this._state as number) === STATE_DIRTY) {
+          // Stop the loop here so we won't trigger updates on other parents unnecessarily
+          // If our computation changes to no longer use some sources, we don't
+          // want to update() a source we used last time, but now don't use.
+          break;
+        }
+      }
+    }
+
+    if (this._state === STATE_DIRTY) update(this);
+    else this._state = STATE_CLEAN;
+  }
+}
+
+class LoadingState {
+  _observers: Computation[] | null;
+  _value: number;
+  constructor(value: number) {
+    this._observers = null;
+    this._value = value;
+  }
+  updateIfNecessary() {}
+  change(value: number) {
+    this.set(this._value + value);
+  }
+  read() {
+    if (currentObserver) {
+      if (
+        !newSources &&
+        currentObserver._sources &&
+        currentObserver._sources[newSourcesIndex] == this
+      ) {
+        newSourcesIndex++;
+      } else if (!newSources) newSources = [this];
+      else newSources.push(this);
+    }
+
+    return this._value != 0;
+  }
+  set(value: number) {
+    if (this._value === value) return;
+    const wasZero = Math.min(this._value, 1);
+    const isZero = Math.min(value, 1);
+    this._value = value;
+    if (wasZero != isZero && this._observers) {
+      for (let i = 0; i < this._observers.length; i++) {
+        this._observers[i].state().change(wasZero - isZero);
+      }
+    }
+  }
+}
+
+export class Effect extends Computation {
+  notify(state: number): void {
+    if (this._state >= state) return;
+
+    if (this._state === STATE_CLEAN) {
+      effects.push(this);
+      if (!scheduledEffects) flushEffects();
+    }
+
+    this._state = state;
+    if (this._observers) {
+      for (let i = 0; i < this._observers.length; i++) {
+        this._observers[i].notify(STATE_CHECK);
+      }
+    }
+  }
+  write(value: any) {
+    this._value = value;
+  }
+}
+
+function setMaybePromise(node: Computation, value: any): 0 | 1 {
+  if (isPromise(value)) {
+    value.then((v) => {
+      node._lstate!.change(-1);
+      node.write(v);
+    });
+    return 1;
+  } else {
+    node._value = value;
+    return 0;
+  }
 }
 
 function cleanup(node: Computation) {
@@ -399,7 +471,7 @@ export function update(node: Computation) {
 
   newSources = null as Computation[] | null;
   newSourcesIndex = 0;
-  memoLoading = false;
+  memoLoading = 0;
 
   try {
     cleanup(node);
@@ -418,7 +490,7 @@ export function update(node: Computation) {
         node._sources = newSources;
       }
 
-      let source: Computation;
+      let source: SourceType;
       for (let i = newSourcesIndex; i < node._sources.length; i++) {
         source = node._sources[i];
         if (!source._observers) source._observers = [node];
@@ -429,12 +501,13 @@ export function update(node: Computation) {
       node._sources.length = newSourcesIndex;
     }
 
-    if (!node._effect && node._init) {
+    if (node._init) {
       node.write(result);
     } else {
-      node._value = result;
+      memoLoading += setMaybePromise(node, result);
       node._init = true;
     }
+    node.state().set(memoLoading);
   } catch (error) {
     if (
       __DEV__ &&
@@ -465,30 +538,11 @@ export function update(node: Computation) {
   newSources = prevObservers;
   newSourcesIndex = prevObserversIndex;
 
-  if (typeof node._lstate === "boolean") node._lstate = memoLoading;
-  else node._lstate.write(memoLoading);
-
   node._state = STATE_CLEAN;
 }
 
-export function notify(node: Computation, state: number) {
-  if (node._state >= state) return;
-
-  if (node._effect && node._state === STATE_CLEAN) {
-    effects.push(node);
-    if (!scheduledEffects) flushEffects();
-  }
-
-  node._state = state;
-  if (node._observers) {
-    for (let i = 0; i < node._observers.length; i++) {
-      notify(node._observers[i], STATE_CHECK);
-    }
-  }
-}
-
-function removeSourceObservers(node: Computation, index: number) {
-  let source: Computation, swap: number;
+function removeSourceObservers(node: ObserverType, index: number) {
+  let source: SourceType, swap: number;
   for (let i = index; i < node._sources!.length; i++) {
     source = node._sources![i];
     if (source._observers) {
