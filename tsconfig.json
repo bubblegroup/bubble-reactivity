@@ -6,6 +6,7 @@
     "newLine": "LF",
     "moduleResolution": "node",
     "noImplicitAny": true,
+    "allowSyntheticDefaultImports": true,
     "strict": true,
     "outDir": "dist/types",
     "module": "esnext",
