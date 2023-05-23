@@ -1,5 +1,5 @@
 import { catchError, createRoot, getOwner, runWithOwner } from "../src";
-import { Owner } from "../src/types";
+import { Owner } from "../src/owner";
 
 it("should scope function to current scope", () => {
   let owner!: Owner | null;

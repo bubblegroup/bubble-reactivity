@@ -4,8 +4,9 @@ import {
   createSignal,
   flushSync,
   onCleanup,
+  createRoot,
+  untrack,
 } from "../src";
-import { createRoot, untrack } from "../src/core";
 
 afterEach(() => flushSync());
 
