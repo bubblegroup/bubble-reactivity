@@ -52,7 +52,10 @@ interface SourceType {
 interface ObserverType {
   _sources: SourceType[] | null;
   notify(state: number): void;
-  state(): LoadingState | null;
+
+  // Needed to handle a second eager propagation pass of number of parents that currently have 
+  // a promise pending
+  _loading: LoadingState | null;
 }
 
 let currentObserver: Computation | null = null;
@@ -65,7 +68,7 @@ export class Computation<T = any> extends Owner {
   _init: boolean;
   _sources: SourceType[] | null;
   _observers: ObserverType[] | null;
-  _lstate: LoadingState | null;
+  _loading: LoadingState | null;
   _value: T | undefined;
   _compute: null | (() => T | Promise<T>);
   name: string | undefined;
@@ -83,15 +86,15 @@ export class Computation<T = any> extends Owner {
     this._observers = null;
     this._compute = compute ?? null;
     if (isPromise(initialValue)) {
-      this._lstate = new LoadingState(this, 1);
+      this._loading = new LoadingState(this, 1);
       this._value = undefined;
       initialValue.then((value) => {
         this.write(value);
-        this._lstate!.change(-1);
+        this._loading!.change(-1);
       });
     } else {
       this._value = initialValue;
-      this._lstate = null;
+      this._loading = null;
     }
 
     if (__DEV__)
@@ -102,7 +105,7 @@ export class Computation<T = any> extends Owner {
   read(): T {
     if (this._state === STATE_DISPOSED) return this._value!;
 
-    memoLoading += this._lstate == null ? 0 : +this._lstate.read();
+    memoLoading += this._loading == null ? 0 : +this._loading.read();
 
     if (currentObserver) {
       if (
@@ -120,11 +123,11 @@ export class Computation<T = any> extends Owner {
     return this._value!;
   }
 
-  state(): LoadingState {
-    if (!this._lstate) {
-      this._lstate = new LoadingState(this, 0);
+  loading(): boolean {
+    if (!this._loading) {
+      this._loading = new LoadingState(this, 0);
     }
-    return this._lstate;
+    return this._loading.read();
   }
 
   write(value: T): T {
@@ -226,7 +229,7 @@ class LoadingState {
     if (wasZero != isZero) {
       if (this._origin._observers) {
         for (let i = 0; i < this._origin._observers.length; i++) {
-          this._origin._observers[i].state()!.change(isZero - wasZero);
+          this._origin._observers[i]._loading!.change(isZero - wasZero);
         }
       }
       if (this._observers) {
@@ -241,7 +244,7 @@ class LoadingState {
 function setMaybePromise(node: Computation, value: any): 0 | 1 {
   if (isPromise(value)) {
     value.then((v) => {
-      node._lstate!.change(-1);
+      node._loading!.change(-1);
       node.write(v);
     });
     return 1;
@@ -309,8 +312,8 @@ export function update(node: Computation) {
       node._init = true;
     }
 
-    if (node._lstate) node._lstate.set(memoLoading);
-    else if (memoLoading) node._lstate = new LoadingState(node, memoLoading);
+    if (node._loading) node._loading.set(memoLoading);
+    else if (memoLoading) node._loading = new LoadingState(node, memoLoading);
   } catch (error) {
     handleError(node, error);
 

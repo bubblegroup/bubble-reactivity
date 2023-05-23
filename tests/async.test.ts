@@ -7,13 +7,13 @@ it("should propagate loading state when calling read", async () => {
   const chain = new Computation(undefined, () => comp.read());
 
   expect(chain.read()).toBeUndefined();
-  expect(comp.state()._value).toBe(1);
-  expect(chain.state().read()).toBe(true);
+  expect(comp.loading()).toBe(true);
+  expect(chain.loading()).toBe(true);
   resolve!(1);
   await Promise.resolve();
-  expect(comp.state().read()).toBe(false);
+  expect(comp.loading()).toBe(false);
   expect(chain.read()).toBe(1);
-  expect(chain.state().read()).toBe(false);
+  expect(chain.loading()).toBe(false);
 });
 
 it("should handle two async sources", async () => {
@@ -34,16 +34,16 @@ it("should handle two async sources", async () => {
   });
 
   expect(chain.read()).toBeUndefined();
-  expect(comp1.state().read()).toBe(true);
-  expect(comp2.state().read()).toBe(true);
+  expect(comp1.loading()).toBe(true);
+  expect(comp2.loading()).toBe(true);
   resolve1!(1);
   await Promise.resolve();
-  expect(comp1.state().read()).toBe(false);
-  expect(comp2.state().read()).toBe(true);
+  expect(comp1.loading()).toBe(false);
+  expect(comp2.loading()).toBe(true);
   expect(chain.read()).toBeUndefined();
   resolve2!(2);
   await Promise.resolve();
-  expect(comp2.state().read()).toBe(false);
+  expect(comp2.loading()).toBe(false);
   expect(chain.read()).toBe(3);
 });
 
@@ -58,13 +58,13 @@ it("should handle async memos", async () => {
   });
 
   expect(chain.read()).toBeUndefined();
-  expect(comp.state().read()).toBe(true);
-  expect(chain.state().read()).toBe(true);
+  expect(comp.loading()).toBe(true);
+  expect(chain.loading()).toBe(true);
   resolve1!(1);
   await Promise.resolve();
   expect(chain.read()).toBe(2);
-  expect(comp.state().read()).toBe(false);
-  expect(chain.state().read()).toBe(false);
+  expect(comp.loading()).toBe(false);
+  expect(chain.loading()).toBe(false);
 });
 
 it("should handle async memos chaining", async () => {
@@ -79,18 +79,18 @@ it("should handle async memos chaining", async () => {
   });
 
   comp2.read();
-  expect(comp2.state().read()).toBe(true);
-  expect(comp1.state().read()).toBe(true);
+  expect(comp2.loading()).toBe(true);
+  expect(comp1.loading()).toBe(true);
   resolve2!(1);
   await Promise.resolve();
   expect(comp2.read()).toBe(1);
-  expect(comp2.state().read()).toBe(true);
-  expect(comp1.state().read()).toBe(true);
+  expect(comp2.loading()).toBe(true);
+  expect(comp1.loading()).toBe(true);
   resolve1!(2);
   await Promise.resolve();
   expect(comp2.read()).toBe(1);
-  expect(comp1.state().read()).toBe(false);
-  expect(comp2.state().read()).toBe(true);
+  expect(comp1.loading()).toBe(false);
+  expect(comp2.loading()).toBe(true);
 });
 
 it("should handle effects watching async memo state", async () => {
@@ -99,7 +99,7 @@ it("should handle effects watching async memo state", async () => {
     return new Promise<number>((r) => (resolve1 = r));
   });
   
-  const effect = vi.fn(() => comp1.state().read());
+  const effect = vi.fn(() => comp1.loading());
   createEffect(effect);
 
   comp1.read();
