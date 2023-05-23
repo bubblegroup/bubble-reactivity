@@ -110,16 +110,7 @@ export class Computation<T = any> extends Owner {
     memoLoading +=
       this._loading == null ? 0 : +Math.min(this._loading._value, 1);
 
-    if (currentObserver) {
-      if (
-        !newSources &&
-        currentObserver._sources &&
-        currentObserver._sources[newSourcesIndex] == this
-      ) {
-        newSourcesIndex++;
-      } else if (!newSources) newSources = [this];
-      else newSources.push(this);
-    }
+    track(this);
 
     if (this._compute) this.updateIfNecessary();
 
@@ -237,16 +228,7 @@ class LoadingState<T = any> {
   }
 
   read() {
-    if (currentObserver) {
-      if (
-        !newSources &&
-        currentObserver._sources &&
-        currentObserver._sources[newSourcesIndex] == this
-      ) {
-        newSourcesIndex++;
-      } else if (!newSources) newSources = [this];
-      else newSources.push(this);
-    }
+    track(this);
 
     return this._value != 0;
   }
@@ -277,6 +259,32 @@ function cleanup(node: Computation) {
     node.dispose(false);
   if (node._disposal) node.emptyDisposal();
   node._context = null;
+}
+
+/**
+ * Instead of wiping the sources immediately on reevaluation, we instead compare them to the new sources
+ * by checking if the source we want to add is the same as the old source at the same index.
+ * 
+ * This way when the sources don't change, we are just doing a fast comparison:
+ * 
+ * _sources: [a, b, c]
+ *            ^
+ *            |
+ *      newSourcesIndex
+ * 
+ * When the sources do change, we create newSources and push the values that we read into it
+ */
+function track(computation: ObserverType) {
+  if (currentObserver) {
+    if (
+      !newSources &&
+      currentObserver._sources &&
+      currentObserver._sources[newSourcesIndex] == computation
+    ) {
+      newSourcesIndex++;
+    } else if (!newSources) newSources = [computation];
+    else newSources.push(computation);
+  }
 }
 
 /**
