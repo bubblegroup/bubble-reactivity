@@ -10,7 +10,7 @@
  *     const c = createOwner(() => {
  *       const d = createOwner(() => {});
  *     });
- * 
+ *
  *     const e = createOwner(() => {});
  *   });
  *
@@ -24,7 +24,7 @@
  *
  * Following the _nextSibling pointers of each owner will first give you its children, and then its siblings.
  * a -> b -> c -> d -> e
- * 
+ *
  * Note that the owner tree is largely orthogonal to the reactivity tree, and is much closer to the component tree.
  */
 
