@@ -1,18 +1,18 @@
 import {
   createEffect,
   createMemo,
+  createRoot,
   createSignal,
   flushSync,
   onCleanup,
-  createRoot,
   untrack,
 } from "../src";
 
 afterEach(() => flushSync());
 
 it("should run effect", () => {
-  const [$x, setX] = createSignal(0),
-    effect = vi.fn(() => void $x());
+  const [$x, setX] = createSignal(0);
+  const effect = vi.fn(() => void $x());
 
   createEffect(effect);
   flushSync();
@@ -24,7 +24,7 @@ it("should run effect", () => {
 });
 
 it("should run effect on change", () => {
-  const effect = vi.fn();
+  const effect = vi.fn((n: number) => n);
 
   const [$x, setX] = createSignal(10);
   const [$y, setY] = createSignal(10);
@@ -114,7 +114,7 @@ it("should handle nested effect", () => {
 });
 
 it("should stop effect", () => {
-  const effect = vi.fn();
+  const effect = vi.fn((n: number) => n);
 
   const [$x, setX] = createSignal(10);
 
@@ -192,7 +192,7 @@ it("should conditionally observe", () => {
   const [$condition, setCondition] = createSignal(true);
 
   const $a = createMemo(() => ($condition() ? $x() : $y()));
-  const effect = vi.fn();
+  const effect = vi.fn((n: number) => n);
 
   createEffect(() => effect($a()));
 
@@ -248,14 +248,12 @@ it("should dispose of nested conditional effect", () => {
 
 // https://github.com/preactjs/signals/issues/152
 it("should handle looped effects", () => {
-  let values: number[] = [],
-    loop = 2;
+  let values: number[] = [];
+  let loop = 2;
 
   const [$value, setValue] = createSignal(0);
 
-  let x = 0;
   createEffect(() => {
-    x++;
     values.push($value());
     for (let i = 0; i < loop; i++) {
       createEffect(() => {
@@ -286,15 +284,15 @@ it("should handle looped effects", () => {
 });
 
 it("should apply changes in effect in same flush", async () => {
-  const [$x, setX] = createSignal(0),
-    [$y, setY] = createSignal(0);
+  const [$x, setX] = createSignal(0);
+  const [$y, setY] = createSignal(0);
 
   const $a = createMemo(() => {
-      return $x() + 1;
-    }),
-    $b = createMemo(() => {
-      return $a() + 2;
-    });
+    return $x() + 1;
+  });
+  const $b = createMemo(() => {
+    return $a() + 2;
+  });
 
   createEffect(() => {
     setX(untrack(() => $x()) + 1);

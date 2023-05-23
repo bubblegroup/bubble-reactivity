@@ -1,5 +1,6 @@
 import {
   Accessor,
+  Signal,
   createEffect,
   createMemo,
   createRoot,
@@ -7,7 +8,6 @@ import {
   flushSync,
   getOwner,
   onCleanup,
-  Signal,
 } from "../src";
 import { Computation } from "../src/core";
 
@@ -49,7 +49,7 @@ it("should return result", () => {
 
 it("should create new tracking scope", () => {
   const [$x, setX] = createSignal(0);
-  const effect = vi.fn();
+  const effect = vi.fn((n: number) => n);
 
   const stopEffect = createRoot((dispose) => {
     createEffect(() => {

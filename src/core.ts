@@ -29,9 +29,9 @@
 
 import { Owner, getOwner, handleError, setCurrentOwner } from "./owner";
 import {
+  STATE_CHECK,
   STATE_CLEAN,
   STATE_DIRTY,
-  STATE_CHECK,
   STATE_DISPOSED,
 } from "./constants";
 
@@ -53,22 +53,23 @@ interface ObserverType {
   _sources: SourceType[] | null;
   notify(state: number): void;
 
-  // Needed to handle a second eager propagation pass of number of parents that currently have 
+  // Needed to handle a second eager propagation pass of number of parents that currently have
   // a promise pending
   _loading: LoadingState | null;
 }
 
-let currentObserver: Computation | null = null;
+let currentObserver: ObserverType | null = null;
 
-let newSources: SourceType[] | null = null,
-  memoLoading = 0,
-  newSourcesIndex = 0;
+let newSources: SourceType[] | null = null;
+let memoLoading = 0;
+let newSourcesIndex = 0;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export class Computation<T = any> extends Owner {
   _init: boolean;
   _sources: SourceType[] | null;
   _observers: ObserverType[] | null;
-  _loading: LoadingState | null;
+  _loading: LoadingState<T> | null;
   _value: T | undefined;
   _compute: null | (() => T | Promise<T>);
   name: string | undefined;
@@ -88,7 +89,7 @@ export class Computation<T = any> extends Owner {
     if (isPromise(initialValue)) {
       this._loading = new LoadingState(this, 1);
       this._value = undefined;
-      initialValue.then((value) => {
+      void initialValue.then((value) => {
         this.write(value);
         this._loading!.change(-1);
       });
@@ -130,9 +131,15 @@ export class Computation<T = any> extends Owner {
     return this._loading.read();
   }
 
-  write(value: T): T {
-    if (!this._equals || !this._equals(this._value!, value)) {
-      memoLoading += setMaybePromise(this, value);
+  write(value: T | Promise<T>): T {
+    if (isPromise(value)) {
+      void value.then((v) => {
+        this._loading!.change(-1);
+        this.write(v);
+      });
+      memoLoading++;
+    } else if (!this._equals || !this._equals(this._value!, value)) {
+      this._value = value;
       if (!isPromise(value)) {
         if (this._observers) {
           for (let i = 0; i < this._observers.length; i++) {
@@ -190,22 +197,29 @@ export class Computation<T = any> extends Owner {
  * We attach a LoadingState node to each Computation node to track async sources.
  * When a Computation node returns an async value it creates a LoadingState node with value 1.
  * When the async value resolves, it calls change(-1) on the LoadingState node.
- * 
+ *
  * When a Computation node reads a LoadingState node, it adds the LoadingState node to its sources.
  */
-class LoadingState {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+class LoadingState<T = any> {
   _observers: ObserverType[] | null;
   _value: number;
-  _origin: Computation;
-  constructor(origin: Computation, value: number) {
+  _origin: Computation<T>;
+
+  constructor(origin: Computation<T>, value: number) {
     this._origin = origin;
     this._observers = null;
     this._value = value;
   }
+
+  // Stubbed out to match the required interface
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
   updateIfNecessary() {}
+
   change(value: number) {
     this.set(this._value + value);
   }
+
   read() {
     if (currentObserver) {
       if (
@@ -220,6 +234,7 @@ class LoadingState {
 
     return this._value != 0;
   }
+
   set(value: number) {
     if (this._value === value) return;
 
@@ -241,19 +256,6 @@ class LoadingState {
   }
 }
 
-function setMaybePromise(node: Computation, value: any): 0 | 1 {
-  if (isPromise(value)) {
-    value.then((v) => {
-      node._loading!.change(-1);
-      node.write(v);
-    });
-    return 1;
-  } else {
-    node._value = value;
-    return 0;
-  }
-}
-
 function cleanup(node: Computation) {
   if (node._nextSibling && node._nextSibling._parent === node)
     node.dispose(false);
@@ -269,9 +271,9 @@ function cleanup(node: Computation) {
  * It also checks the count of asynchronous computations and sets the node's loading state (lstate)
  * to the number of sources that are currently waiting on a value or have any parents waiting on a value
  */
-export function update(node: Computation) {
-  let prevObservers = newSources,
-    prevObserversIndex = newSourcesIndex;
+export function update<T>(node: Computation<T>) {
+  const prevObservers = newSources;
+  const prevObserversIndex = newSourcesIndex;
 
   newSources = null as Computation[] | null;
   newSourcesIndex = 0;
@@ -308,7 +310,15 @@ export function update(node: Computation) {
     if (node._init) {
       node.write(result);
     } else {
-      memoLoading += setMaybePromise(node, result);
+      if (isPromise(result)) {
+        void result.then((v) => {
+          node._loading!.change(-1);
+          node.write(v);
+        });
+        memoLoading++;
+      } else {
+        node._value = result;
+      }
       node._init = true;
     }
 
@@ -332,7 +342,8 @@ export function update(node: Computation) {
 }
 
 function removeSourceObservers(node: ObserverType, index: number) {
-  let source: SourceType, swap: number;
+  let source: SourceType;
+  let swap: number;
   for (let i = index; i < node._sources!.length; i++) {
     source = node._sources![i];
     if (source._observers) {
@@ -343,10 +354,10 @@ function removeSourceObservers(node: ObserverType, index: number) {
   }
 }
 
-function isPromise(v: any): v is Promise<any> {
+function isPromise(v: unknown): v is Promise<unknown> {
   return (
     (typeof v === "object" || typeof v === "function") &&
-    typeof v?.then === "function"
+    typeof (v as any)?.then === "function" // eslint-disable-line
   );
 }
 
@@ -361,9 +372,24 @@ export function untrack<T>(fn: () => T): T {
 
 export function compute<T>(
   owner: Owner | null,
-  compute: (val: T) => T,
-  observer: Computation | null
-): T {
+  compute: (val: T) => T | Promise<T>,
+  observer: Computation<T>
+): T | Promise<T>;
+export function compute<T>(
+  owner: Owner | null,
+  compute: (val: undefined) => T,
+  observer: null
+): T;
+export function compute<T>(
+  owner: Owner | null,
+  compute: (val: undefined) => T | Promise<T>,
+  observer: null
+): T | Promise<T>;
+export function compute<T>(
+  owner: Owner | null,
+  compute: (val?: T) => T | Promise<T>,
+  observer: Computation<T> | null
+): T | Promise<T> {
   const prevOwner = setCurrentOwner(owner);
   const prevObserver = currentObserver;
   currentObserver = observer;

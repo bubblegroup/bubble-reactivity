@@ -16,7 +16,7 @@ it("should drop X->B->X updates", () => {
   const $a = createMemo(() => $x() - 1);
   const $b = createMemo(() => $x() + $a());
 
-  const compute = vi.fn(() => "c: " + $b());
+  const compute = vi.fn(() => `c: ${$b()}`);
   const $c = createMemo(compute);
 
   expect($c()).toBe("c: 3");
@@ -224,32 +224,32 @@ it("propagates in topological order", () => {
   //    \  /
   //     a1
   //
-  var seq = "",
-    [a1, setA1] = createSignal(false),
-    b1 = createMemo(
-      () => {
-        a1();
-        seq += "b1";
-      },
-      undefined,
-      { equals: false }
-    ),
-    b2 = createMemo(
-      () => {
-        a1();
-        seq += "b2";
-      },
-      undefined,
-      { equals: false }
-    ),
-    c1 = createMemo(
-      () => {
-        b1(), b2();
-        seq += "c1";
-      },
-      undefined,
-      { equals: false }
-    );
+  let seq = "";
+  const [a1, setA1] = createSignal(false);
+  const b1 = createMemo(
+    () => {
+      a1();
+      seq += "b1";
+    },
+    undefined,
+    { equals: false }
+  );
+  const b2 = createMemo(
+    () => {
+      a1();
+      seq += "b2";
+    },
+    undefined,
+    { equals: false }
+  );
+  const c1 = createMemo(
+    () => {
+      b1(), b2();
+      seq += "c1";
+    },
+    undefined,
+    { equals: false }
+  );
 
   c1();
   seq = "";
@@ -268,17 +268,17 @@ it("only propagates once with linear convergences", () => {
   // +---+---+---+---+
   //         v
   //         g
-  var [d, setD] = createSignal(0),
-    f1 = createMemo(() => d()),
-    f2 = createMemo(() => d()),
-    f3 = createMemo(() => d()),
-    f4 = createMemo(() => d()),
-    f5 = createMemo(() => d()),
-    gcount = 0,
-    g = createMemo(() => {
-      gcount++;
-      return f1() + f2() + f3() + f4() + f5();
-    });
+  const [d, setD] = createSignal(0);
+  const f1 = createMemo(() => d());
+  const f2 = createMemo(() => d());
+  const f3 = createMemo(() => d());
+  const f4 = createMemo(() => d());
+  const f5 = createMemo(() => d());
+  let gcount = 0;
+  const g = createMemo(() => {
+    gcount++;
+    return f1() + f2() + f3() + f4() + f5();
+  });
 
   g();
   gcount = 0;
@@ -301,30 +301,30 @@ it("only propagates once with exponential convergence", () => {
   // +---+---+
   //     v
   //     h
-  var [d, setD] = createSignal(0),
-    f1 = createMemo(() => {
-      return d();
-    }),
-    f2 = createMemo(() => {
-      return d();
-    }),
-    f3 = createMemo(() => {
-      return d();
-    }),
-    g1 = createMemo(() => {
-      return f1() + f2() + f3();
-    }),
-    g2 = createMemo(() => {
-      return f1() + f2() + f3();
-    }),
-    g3 = createMemo(() => {
-      return f1() + f2() + f3();
-    }),
-    hcount = 0,
-    h = createMemo(() => {
-      hcount++;
-      return g1() + g2() + g3();
-    });
+  const [d, setD] = createSignal(0);
+  const f1 = createMemo(() => {
+    return d();
+  });
+  const f2 = createMemo(() => {
+    return d();
+  });
+  const f3 = createMemo(() => {
+    return d();
+  });
+  const g1 = createMemo(() => {
+    return f1() + f2() + f3();
+  });
+  const g2 = createMemo(() => {
+    return f1() + f2() + f3();
+  });
+  const g3 = createMemo(() => {
+    return f1() + f2() + f3();
+  });
+  let hcount = 0;
+  const h = createMemo(() => {
+    hcount++;
+    return g1() + g2() + g3();
+  });
   h();
   hcount = 0;
   setD(1);
@@ -408,9 +408,12 @@ it("updates downstream pending computations", () => {
 });
 
 describe("with changing dependencies", () => {
-  let i: () => boolean, setI: (v: boolean) => void;
-  let t: () => number, setT: (v: number) => void;
-  let e: () => number, setE: (v: number) => void;
+  let i: () => boolean;
+  let setI: (v: boolean) => void;
+  let t: () => number;
+  let setT: (v: number) => void;
+  let e: () => number;
+  let setE: (v: number) => void;
   let fevals: number;
   let f: () => number;
 
@@ -461,27 +464,27 @@ describe("with changing dependencies", () => {
   });
 
   it("ensures that new dependencies are updated before dependee", () => {
-    var order = "",
-      [a, setA] = createSignal(0),
-      b = createMemo(() => {
-        order += "b";
-        return a() + 1;
-      }),
-      c = createMemo(() => {
-        order += "c";
-        const check = b();
-        if (check) {
-          return check;
-        }
-        return e();
-      }),
-      d = createMemo(() => {
-        return a();
-      }),
-      e = createMemo(() => {
-        order += "d";
-        return d() + 10;
-      });
+    let order = "";
+    const [a, setA] = createSignal(0);
+    const b = createMemo(() => {
+      order += "b";
+      return a() + 1;
+    });
+    const c = createMemo(() => {
+      order += "c";
+      const check = b();
+      if (check) {
+        return check;
+      }
+      return e();
+    });
+    const d = createMemo(() => {
+      return a();
+    });
+    const e = createMemo(() => {
+      order += "d";
+      return d() + 10;
+    });
 
     c();
     e();
@@ -542,17 +545,17 @@ it("does not update subsequent pending computations after stale invocations", ()
 });
 
 it("evaluates stale computations before dependees when trackers stay unchanged", () => {
-  let [s1, set] = createSignal(1, { equals: false });
+  const [s1, set] = createSignal(1, { equals: false });
   let order = "";
-  let t1 = createMemo(() => {
+  const t1 = createMemo(() => {
     order += "t1";
     return s1() > 2;
   });
-  let t2 = createMemo(() => {
+  const t2 = createMemo(() => {
     order += "t2";
     return s1() > 2;
   });
-  let c1 = createMemo(
+  const c1 = createMemo(
     () => {
       order += "c1";
       s1();

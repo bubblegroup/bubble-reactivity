@@ -28,8 +28,8 @@ it("should handle two async sources", async () => {
     null
   );
   const chain = new Computation(undefined, () => {
-    let c1 = comp1.read();
-    let c2 = comp2.read();
+    const c1 = comp1.read();
+    const c2 = comp2.read();
     if (c1 && c2) return c1 + c2;
   });
 
@@ -74,7 +74,7 @@ it("should handle async memos chaining", async () => {
     return new Promise<number>((r) => (resolve1 = r));
   });
   const comp2 = new Computation<number | undefined>(undefined, () => {
-    const c1 = comp1.read();
+    comp1.read();
     return new Promise<number>((r) => (resolve2 = r));
   });
 
@@ -98,7 +98,7 @@ it("should handle effects watching async memo state", async () => {
   const comp1 = new Computation<number | undefined>(undefined, () => {
     return new Promise<number>((r) => (resolve1 = r));
   });
-  
+
   const effect = vi.fn(() => comp1.loading());
   createEffect(effect);
 

@@ -23,8 +23,8 @@
  * Note that the owner tree is largely orthogonal to the reactivity tree, and is much closer to the component tree.
  */
 
-import type { Computation } from "./core";
 import { STATE_CLEAN, STATE_DISPOSED } from "./constants";
+import type { Computation } from "./core";
 
 export type ContextRecord = Record<string | symbol, unknown>;
 export type Disposable = () => void;
@@ -34,7 +34,7 @@ export const HANDLER = Symbol("ERROR_HANDLER");
 let currentOwner: Owner | null = null;
 
 export function setCurrentOwner(owner: Owner | null) {
-  let out = currentOwner;
+  const out = currentOwner;
   currentOwner = owner;
   return out;
 }
@@ -56,7 +56,7 @@ export class Owner {
   _context: null | ContextRecord = null;
   _compute: null | unknown = null;
 
-  constructor(signal: boolean = false) {
+  constructor(signal = false) {
     this._parent = null;
     this._nextSibling = null;
     this._prevSibling = null;
@@ -74,8 +74,8 @@ export class Owner {
   dispose(this: Owner, self = true) {
     if (this._state === STATE_DISPOSED) return;
 
-    let head = self ? this._prevSibling : this,
-      current = this._nextSibling as Computation | null;
+    const head = self ? this._prevSibling : this;
+    let current = this._nextSibling as Computation | null;
 
     while (current && current._parent === this) {
       current.dispose(true);
@@ -88,12 +88,14 @@ export class Owner {
     if (head) head._nextSibling = current;
   }
 
+  // Overriden in child classes
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
   disposeNode() {}
 
   emptyDisposal() {
     if (Array.isArray(this._disposal)) {
       for (let i = 0; i < this._disposal.length; i++) {
-        const callable = this._disposal![i];
+        const callable = this._disposal[i];
         callable.call(callable);
       }
     } else {
@@ -121,11 +123,11 @@ export function onCleanup(disposable: Disposable): void {
   }
 }
 
-export function lookup(owner: Owner | null, key: string | symbol): any {
+export function lookup(owner: Owner | null, key: string | symbol): unknown {
   if (!owner) return;
 
-  let current: Owner | null = owner,
-    value;
+  let current: Owner | null = owner;
+  let value;
 
   while (current) {
     value = current._context?.[key];
@@ -135,7 +137,9 @@ export function lookup(owner: Owner | null, key: string | symbol): any {
 }
 
 export function handleError(owner: Owner | null, error: unknown) {
-  const handler = lookup(owner, HANDLER);
+  const handler = lookup(owner, HANDLER) as
+    | undefined
+    | ((error: Error) => void);
 
   if (!handler) throw error;
 

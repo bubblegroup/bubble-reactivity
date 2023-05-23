@@ -34,6 +34,8 @@ it("should not trigger wrong onCleanup", () => {
     });
 
     const stopEffect = createRoot((dispose) => {
+      // Empty effect with no disposal
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
       createEffect(() => {});
       return dispose;
     });
@@ -46,9 +48,9 @@ it("should not trigger wrong onCleanup", () => {
 });
 
 it("should clean up in reverse order", () => {
-  const disposeParent = vi.fn();
-  const disposeA = vi.fn();
-  const disposeB = vi.fn();
+  const disposeParent = vi.fn<[number], void>();
+  const disposeA = vi.fn<[number], void>();
+  const disposeB = vi.fn<[number], void>();
 
   let calls = 0;
 

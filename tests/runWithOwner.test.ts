@@ -19,8 +19,8 @@ it("should return value", () => {
 });
 
 it("should handle errors", () => {
-  const error = new Error(),
-    handler = vi.fn();
+  const error = new Error();
+  const handler = vi.fn();
 
   let owner!: Owner | null;
   catchError(() => {

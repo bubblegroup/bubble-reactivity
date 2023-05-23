@@ -59,7 +59,7 @@ it("should update when deep computed dependency is updated", () => {
 });
 
 it("should only re-compute when needed", () => {
-  const computed = vi.fn();
+  const computed = vi.fn((n: number) => n);
 
   const [$x, setX] = createSignal(10);
   const [$y, setY] = createSignal(10);
@@ -88,8 +88,8 @@ it("should only re-compute when needed", () => {
 });
 
 it("should only re-compute whats needed", () => {
-  const memoA = vi.fn((n) => n);
-  const memoB = vi.fn((n) => n);
+  const memoA = vi.fn((n: number) => n);
+  const memoB = vi.fn((n: number) => n);
 
   const [$x, setX] = createSignal(10);
   const [$y, setY] = createSignal(10);
@@ -154,7 +154,7 @@ it("should accept equals option", () => {
     equals: (prev, next) => prev + 1 === next,
   });
 
-  const effectA = vi.fn();
+  const effectA = vi.fn((n: number) => n);
   createEffect(() => effectA($a()));
 
   flushSync();
@@ -178,13 +178,13 @@ it("should use fallback if error is thrown during init", () => {
     catchError(
       () => {
         const $a = createMemo(() => {
-          if (1) throw Error();
-          return "";
+          throw Error();
         }, "foo");
 
         expect($a()).toBe("foo");
       },
-      () => {}
+      // Catch the error silently
+      () => {} // eslint-disable-line @typescript-eslint/no-empty-function
     );
   });
 });

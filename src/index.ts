@@ -1,6 +1,6 @@
 import { Computation, MemoOptions, SignalOptions, compute } from "./core";
-import { Effect } from "./effect";
 import { HANDLER, Owner, handleError } from "./owner";
+import { Effect } from "./effect";
 
 export interface Accessor<T> {
   (): T;
@@ -72,7 +72,7 @@ export function createRoot<T>(
 
 /**
  * Runs the given function in the given owner so that error handling and cleanups continue to work.
- * 
+ *
  * Warning: Usually there are simpler ways of modeling a problem that avoid using this function
  */
 export function runWithOwner<T>(

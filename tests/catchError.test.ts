@@ -19,8 +19,8 @@ it("should let errors bubble up when not handled", () => {
 });
 
 it("should handle error", () => {
-  const error = new Error(),
-    handler = vi.fn();
+  const error = new Error();
+  const handler = vi.fn();
 
   catchError(() => {
     throw error;
@@ -30,10 +30,10 @@ it("should handle error", () => {
 });
 
 it("should forward error to another handler", () => {
-  const error = new Error(),
-    rootHandler = vi.fn();
+  const error = new Error();
+  const rootHandler = vi.fn();
 
-  let [$x, setX] = createSignal(0);
+  const [$x, setX] = createSignal(0);
 
   catchError(() => {
     createEffect(() => {
@@ -59,11 +59,11 @@ it("should forward error to another handler", () => {
 });
 
 it("should not duplicate error handler", () => {
-  const error = new Error(),
-    handler = vi.fn();
+  const error = new Error();
+  const handler = vi.fn();
 
-  let [$x, setX] = createSignal(0),
-    shouldThrow = false;
+  const [$x, setX] = createSignal(0);
+  let shouldThrow = false;
 
   createEffect(() => {
     $x();
@@ -82,12 +82,12 @@ it("should not duplicate error handler", () => {
 });
 
 it("should not trigger wrong handler", () => {
-  const error = new Error(),
-    rootHandler = vi.fn(),
-    handler = vi.fn();
+  const error = new Error();
+  const rootHandler = vi.fn();
+  const handler = vi.fn();
 
-  let [$x, setX] = createSignal(0),
-    shouldThrow = false;
+  const [$x, setX] = createSignal(0);
+  let shouldThrow = false;
 
   createRoot(() => {
     catchError(() => {

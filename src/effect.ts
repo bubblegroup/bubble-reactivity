@@ -1,12 +1,12 @@
 import { Computation, type MemoOptions } from "./core";
 import { STATE_CLEAN } from "./constants";
 
-let scheduledEffects = false,
-  runningEffects = false,
-  effects: Effect[] = [];
+let scheduledEffects = false;
+let runningEffects = false;
+let effects: Effect[] = [];
 
 /**
- * By default, changes are batched on the microtask queue which is an async process. You can flush the queue 
+ * By default, changes are batched on the microtask queue which is an async process. You can flush the queue
  * synchronously to get the latest updates by calling `flushSync()`.
  */
 export function flushSync(): void {
@@ -23,9 +23,9 @@ function flushEffects() {
  * In particular, it is important that we check all of our parents to see if they will rerun
  * See tests/createEffect: "should run parent effect before child effect"
  */
-function runTop(node: Computation<any>) {
-  let ancestors = [node];
-  while ((node = node._parent as Computation<any>)) {
+function runTop(node: Computation) {
+  const ancestors = [node];
+  while ((node = node._parent as Computation)) {
     if (node._state !== STATE_CLEAN) {
       ancestors.push(node);
     }
@@ -60,6 +60,7 @@ function runEffects() {
  * Effects are the leaf nodes of our reactive graph. When their sources change, they are automatically
  * added to the queue of effects to reexecute, which will cause them to fetch their sources and recompute
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export class Effect<T = any> extends Computation<T> {
   constructor(initialValue: T, compute: () => T, options?: MemoOptions<T>) {
     super(initialValue, compute, options);
