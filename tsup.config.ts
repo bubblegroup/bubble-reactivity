@@ -19,7 +19,6 @@ function options({ dev, node }: BundleOptions): Options {
     target: node ? "node16" : "esnext",
     define: {
       __DEV__: dev ? "true" : "false",
-      __TEST__: "false",
     },
     esbuildOptions(opts) {
       opts.mangleProps = !dev ? /^_/ : undefined;

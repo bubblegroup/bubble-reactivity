@@ -1,3 +1,28 @@
+/**
+ * Owner tracking is used to enable nested tracking scopes with automatic cleanup.
+ * We also use owners to also keep track of which error handling context we are in.
+ *
+ * If you write the following
+ *
+ *   const a = createOwner(() => {
+ *     const b = createOwner(() => {});
+ *
+ *     const c = createOwner(() => {
+ *       const d = createOwner(() => {});
+ *     });
+ *   });
+ *
+ * The owner tree will look like this:
+ *
+ *   a
+ *   |\
+ *   b-c
+ *     |
+ *     d
+ *
+ * Note that the owner tree is largely orthogonal to the reactivity tree, and is much closer to the component tree.
+ */
+
 import type { Computation } from "./core";
 import { STATE_CLEAN, STATE_DISPOSED } from "./constants";
 

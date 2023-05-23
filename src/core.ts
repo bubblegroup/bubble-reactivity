@@ -1,5 +1,39 @@
-import { Owner, getOwner, handleError, lookup, setCurrentOwner } from "./owner";
-import { STATE_CLEAN, STATE_DIRTY, STATE_CHECK, STATE_DISPOSED } from "./constants";
+/**
+ * Nodes for constructing a reactive graph of reactive values and reactive computations.
+ * The graph is acyclic.
+ * The user inputs new values into the graph by calling .write() on one more more reactive nodes.
+ * The user retrieves computed results from the graph by calling .read() on one or more computation nodes.
+ * The library is responsible for running any necessary computations so that .read() is
+ * up to date with all prior .write() calls anywhere in the graph.
+ *
+ * We call input nodes 'roots' and the output nodes 'leaves' of the graph here in discussion.
+ * Changes flow from roots to leaves. It would be effective but inefficient to immediately propagate
+ * all changes from a root through the graph to descendant leaves. Instead we defer change
+ * most change progogation computation until a leaf is accessed. This allows us to coalesce computations
+ * and skip altogether recalculating unused sections of the graph.
+ *
+ * Each computation node tracks its sources and its observers (observers are other
+ * elements that have this node as a source). Source and observer links are updated automatically
+ * as observer computations re-evaluate and call get() on their sources.
+ *
+ * Each node stores a cache state to support the change propogation algorithm: 'clean', 'check', or 'dirty'
+ * In general, execution proceeds in three passes:
+ *  1. write() propogates changes down the graph to the leaves
+ *     direct children are marked as dirty and their deeper descendants marked as check
+ *     (no computations are evaluated)
+ *  2. read() requests that parent nodes updateIfNecessary(), which proceeds recursively up the tree
+ *     to decide whether the node is clean (parents unchanged) or dirty (parents changed)
+ *  3. updateIfNecessary() evaluates the computation if the node is dirty
+ *     (the computations are executed in root to leaf order)
+ */
+
+import { Owner, getOwner, handleError, setCurrentOwner } from "./owner";
+import {
+  STATE_CLEAN,
+  STATE_DIRTY,
+  STATE_CHECK,
+  STATE_DISPOSED,
+} from "./constants";
 
 export interface SignalOptions<T> {
   name?: string;
@@ -149,6 +183,13 @@ export class Computation<T = any> extends Owner {
   }
 }
 
+/**
+ * We attach a LoadingState node to each Computation node to track async sources.
+ * When a Computation node returns an async value it creates a LoadingState node with value 1.
+ * When the async value resolves, it calls change(-1) on the LoadingState node.
+ * 
+ * When a Computation node reads a LoadingState node, it adds the LoadingState node to its sources.
+ */
 class LoadingState {
   _observers: ObserverType[] | null;
   _value: number;
@@ -217,6 +258,14 @@ function cleanup(node: Computation) {
   node._context = null;
 }
 
+/**
+ * This is the main tracking code when a computation's _compute function is rerun.
+ * It handles the updating of sources and observers, disposal of previous executions,
+ * and error handling if the _compute function throws.
+ *
+ * It also checks the count of asynchronous computations and sets the node's loading state (lstate)
+ * to the number of sources that are currently waiting on a value or have any parents waiting on a value
+ */
 export function update(node: Computation) {
   let prevObservers = newSources,
     prevObserversIndex = newSourcesIndex;
@@ -259,7 +308,9 @@ export function update(node: Computation) {
       memoLoading += setMaybePromise(node, result);
       node._init = true;
     }
-    node.state().set(memoLoading);
+
+    if (node._lstate) node._lstate.set(memoLoading);
+    else if (memoLoading) node._lstate = new LoadingState(node, memoLoading);
   } catch (error) {
     handleError(node, error);
 

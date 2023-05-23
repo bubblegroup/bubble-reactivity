@@ -98,17 +98,15 @@ it("should handle effects watching async memo state", async () => {
   const comp1 = new Computation<number | undefined>(undefined, () => {
     return new Promise<number>((r) => (resolve1 = r));
   });
-  let executions = 0;
-  createEffect(() => {
-    executions++;
-    comp1.state().read();
-  });
+  
+  const effect = vi.fn(() => comp1.state().read());
+  createEffect(effect);
 
   comp1.read();
   flushSync();
-  expect(executions).toBe(1);
+  expect(effect).toBeCalledTimes(1);
   resolve1!(1);
   await Promise.resolve();
   flushSync();
-  expect(executions).toBe(2);
+  expect(effect).toBeCalledTimes(2);
 });

@@ -14,7 +14,7 @@ export type Signal<T> = [read: Accessor<T>, write: Setter<T>];
 
 /**
  * Wraps the given value into a signal. The signal will return the current value when invoked
- * `fn()`, and provide a simple write API via `set()`. The value can now be observed
+ * `fn()`, and provide a simple write API via `write()`. The value can now be observed
  * when used inside other computations created with `computed` and `effect`.
  */
 export function createSignal<T>(
@@ -71,8 +71,9 @@ export function createRoot<T>(
 }
 
 /**
- * Runs the given function in the given owner so context and error handling continue to work.
- * This function is pretty advanced, and usually there is a simpler way of modeling the problem
+ * Runs the given function in the given owner so that error handling and cleanups continue to work.
+ * 
+ * Warning: Usually there are simpler ways of modeling a problem that avoid using this function
  */
 export function runWithOwner<T>(
   owner: Owner | null,
