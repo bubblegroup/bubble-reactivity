@@ -93,9 +93,14 @@ export class Owner {
     if (head) head._nextSibling = current;
   }
 
-  // Overriden in child classes
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  disposeNode() {}
+  disposeNode() {
+    if (this._prevSibling) this._prevSibling._nextSibling = null;
+    this._parent = null;
+    this._prevSibling = null;
+    this._context = null;
+    this._state = STATE_DISPOSED;
+    if (this._disposal) this.emptyDisposal();
+  }
 
   emptyDisposal() {
     if (Array.isArray(this._disposal)) {

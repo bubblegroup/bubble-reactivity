@@ -107,12 +107,12 @@ export class Computation<T = any> extends Owner {
   read(): T {
     if (this._state === STATE_DISPOSED) return this._value!;
 
+    if (this._compute) this.updateIfNecessary();
+
     memoLoading +=
       this._loading == null ? 0 : +Math.min(this._loading._value, 1);
 
     track(this);
-
-    if (this._compute) this.updateIfNecessary();
 
     return this._value!;
   }
@@ -122,9 +122,15 @@ export class Computation<T = any> extends Owner {
 
     if (this._compute) this.updateIfNecessary();
 
-    const isLoading = this._loading.read();
-    memoLoading += this._loading == null ? 0 : +isLoading;
+    if (!this._loading) {
+      track(this);
+      return this._value!;
+    }
+
+    track(this._loading);
+    const isLoading = this._loading._value !== 0;
     if (isLoading) {
+      memoLoading++;
       throw new NotReadyError();
     }
 
@@ -135,7 +141,8 @@ export class Computation<T = any> extends Owner {
     if (!this._loading) {
       this._loading = new LoadingState(this, 0);
     }
-    return this._loading.read();
+    track(this._loading);
+    return this._loading._value !== 0;
   }
 
   write(value: T | Promise<T>): T {
@@ -188,15 +195,10 @@ export class Computation<T = any> extends Owner {
   }
 
   disposeNode() {
-    this._state = STATE_DISPOSED;
-    if (this._disposal) this.emptyDisposal();
     if (this._sources) removeSourceObservers(this, 0);
-    if (this._prevSibling) this._prevSibling._nextSibling = null;
-    this._parent = null;
     this._sources = null;
     this._observers = null;
-    this._prevSibling = null;
-    this._context = null;
+    super.disposeNode();
   }
 }
 
@@ -225,12 +227,6 @@ class LoadingState<T = any> {
 
   change(value: number) {
     this.set(this._value + value);
-  }
-
-  read() {
-    track(this);
-
-    return this._value != 0;
   }
 
   set(value: number) {
@@ -264,17 +260,17 @@ function cleanup(node: Computation) {
 /**
  * Instead of wiping the sources immediately on reevaluation, we instead compare them to the new sources
  * by checking if the source we want to add is the same as the old source at the same index.
- * 
+ *
  * This way when the sources don't change, we are just doing a fast comparison:
- * 
+ *
  * _sources: [a, b, c]
  *            ^
  *            |
  *      newSourcesIndex
- * 
+ *
  * When the sources do change, we create newSources and push the values that we read into it
  */
-function track(computation: ObserverType) {
+function track(computation: SourceType) {
   if (currentObserver) {
     if (
       !newSources &&
@@ -423,6 +419,9 @@ export function compute<T>(
   } catch (e) {
     if (!(e instanceof NotReadyError)) {
       throw e;
+    } else {
+      // TODO: figure out what should go here
+      return observer!._value!;
     }
   } finally {
     setCurrentOwner(prevOwner);
