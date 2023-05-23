@@ -34,6 +34,7 @@ import {
   STATE_DIRTY,
   STATE_DISPOSED,
 } from "./constants";
+import { NotReadyError } from "./error";
 
 export interface SignalOptions<T> {
   name?: string;
@@ -106,7 +107,8 @@ export class Computation<T = any> extends Owner {
   read(): T {
     if (this._state === STATE_DISPOSED) return this._value!;
 
-    memoLoading += this._loading == null ? 0 : +this._loading.read();
+    memoLoading +=
+      this._loading == null ? 0 : +Math.min(this._loading._value, 1);
 
     if (currentObserver) {
       if (
@@ -120,6 +122,20 @@ export class Computation<T = any> extends Owner {
     }
 
     if (this._compute) this.updateIfNecessary();
+
+    return this._value!;
+  }
+
+  wait(): T {
+    if (this._state === STATE_DISPOSED) return this._value!;
+
+    if (this._compute) this.updateIfNecessary();
+
+    const isLoading = this._loading.read();
+    memoLoading += this._loading == null ? 0 : +isLoading;
+    if (isLoading) {
+      throw new NotReadyError();
+    }
 
     return this._value!;
   }
@@ -396,6 +412,10 @@ export function compute<T>(
 
   try {
     return compute(observer ? observer._value : undefined);
+  } catch (e) {
+    if (!(e instanceof NotReadyError)) {
+      throw e;
+    }
   } finally {
     setCurrentOwner(prevOwner);
     currentObserver = prevObserver;

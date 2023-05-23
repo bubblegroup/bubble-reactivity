@@ -110,3 +110,41 @@ it("should handle effects watching async memo state", async () => {
   flushSync();
   expect(effect).toBeCalledTimes(2);
 });
+
+it("should not rerun observers of async memos that load to same value", async () => {
+  let resolve1: (value: number) => void;
+  const comp = new Computation<number | undefined>(1, () => {
+    return new Promise<number>((r) => (resolve1 = r));
+  });
+  const child = vi.fn(() => comp.read());
+  const comp2 = new Computation(undefined, child);
+
+  comp2.read();
+  resolve1!(1);
+  await Promise.resolve();
+  comp2.read();
+  expect(child).toBeCalledTimes(1);
+});
+
+it("should handle .wait() on async memos", async () => {
+  let resolve1: (value: number) => void;
+  const comp = new Computation<number>(undefined, () => {
+    return new Promise<number>((r) => (resolve1 = r));
+  });
+  const before = vi.fn();
+  const compute = vi.fn();
+  const chain = new Computation(undefined, () => {
+    before();
+    const c2 = comp.wait();
+    compute();
+    return c2 + 1;
+  });
+  chain.read();
+  expect(compute).toBeCalledTimes(0);
+  resolve1!(1);
+  chain.read();
+  await Promise.resolve();
+  chain.read();
+  expect(compute).toBeCalledTimes(1);
+  expect(before).toBeCalledTimes(2);
+});
