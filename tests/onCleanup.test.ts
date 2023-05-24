@@ -34,9 +34,9 @@ it("should not trigger wrong onCleanup", () => {
     });
 
     const stopEffect = createRoot((dispose) => {
-      // Empty effect with no disposal
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
-      createEffect(() => {});
+      createEffect(() => {
+        // Empty effect with no disposal
+      });
       return dispose;
     });
 

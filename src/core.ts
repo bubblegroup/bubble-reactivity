@@ -86,7 +86,7 @@ export class Computation<T = any> extends Owner {
     this._init = false;
     this._sources = null;
     this._observers = null;
-    this._compute = compute ?? null;
+    this._compute = compute;
     if (isPromise(initialValue)) {
       this._loading = new LoadingState(this, 1);
       this._value = undefined;
@@ -221,9 +221,9 @@ class LoadingState<T = any> {
     this._value = value;
   }
 
-  // Stubbed out to match the required interface
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  updateIfNecessary() {}
+  updateIfNecessary() {
+    // Stubbed out to match the required interface
+  }
 
   change(value: number) {
     this.set(this._value + value);

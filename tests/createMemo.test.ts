@@ -183,8 +183,9 @@ it("should use fallback if error is thrown during init", () => {
 
         expect($a()).toBe("foo");
       },
-      // Catch the error silently
-      () => {} // eslint-disable-line @typescript-eslint/no-empty-function
+      () => {
+        // Catch the error silently
+      }
     );
   });
 });
