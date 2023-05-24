@@ -106,6 +106,8 @@ export class Owner {
     if (Array.isArray(this._disposal)) {
       for (let i = 0; i < this._disposal.length; i++) {
         const callable = this._disposal[i];
+        // Is the idea here to support non-function callables? (the API seems not
+        // to, yet)
         callable.call(callable);
       }
     } else {
@@ -154,6 +156,7 @@ export function handleError(owner: Owner | null, error: unknown) {
   if (!handler) throw error;
 
   try {
+    // ideally we use Error's `cause` parameter
     const coercedError =
       error instanceof Error ? error : Error(JSON.stringify(error));
     handler(coercedError);

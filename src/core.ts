@@ -27,6 +27,24 @@
  *     (the computations are executed in root to leaf order)
  */
 
+// General thoughts:
+// - can we be less promise-oriented in the core (and is it a win)
+// - I'm a bit spooked by the loading state propagation; we might want to
+//   explicitly lay out our options and expectations here, and the performance
+//   bounds each approach can get.
+
+// I think LoadingStates might get marked (dirty/check) too late. If you have...
+// - A: Computation
+// - B: Comptuation that depends on A's loading state (but not A)
+// - C: Computation that depends on B.
+//
+// Then something that dirties A in a way that makes its next run have a
+// different loading state than its previous run, it brings you to a graph where
+// you can read C then A then C again, and get two different values for C!
+//
+// (Am I missing something?)
+
+
 import { Owner, getOwner, handleError, setCurrentOwner } from "./owner";
 import {
   STATE_CHECK,
@@ -74,6 +92,7 @@ export class Computation<T = any> extends Owner {
   _value: T | undefined;
   _compute: null | (() => T | Promise<T>);
   name: string | undefined;
+  // creates a new function object every time (alas)
   _equals: false | ((a: T, b: T) => boolean) = (a, b) => a === b;
   constructor(
     initialValue: T | Promise<T> | undefined,
@@ -131,6 +150,8 @@ export class Computation<T = any> extends Owner {
     const isLoading = this._loading._value !== 0;
     if (isLoading) {
       memoLoading++;
+      // could in theory use the same object every time (and not capture a stack
+      // trace); may be a thing we want to only do in debug mode
       throw new NotReadyError();
     }
 
@@ -146,6 +167,9 @@ export class Computation<T = any> extends Owner {
   }
 
   write(value: T | Promise<T>): T {
+    // I'm not sure about this connection between promises<->loadingness -- it
+    // seems like the core could be agnostic to why things are loading/how to
+    // decide they're ready, and it might separate some concerns better.
     if (isPromise(value)) {
       void value.then((v) => {
         this._loading!.change(-1);
@@ -181,6 +205,7 @@ export class Computation<T = any> extends Owner {
     if (this._state === STATE_CHECK) {
       for (let i = 0; i < this._sources!.length; i++) {
         this._sources![i].updateIfNecessary();
+        // hah, very unfortunate cast here (but I see why TS asks for it)
         if ((this._state as number) === STATE_DIRTY) {
           // Stop the loop here so we won't trigger updates on other parents unnecessarily
           // If our computation changes to no longer use some sources, we don't
@@ -210,6 +235,8 @@ export class Computation<T = any> extends Owner {
  * When a Computation node reads a LoadingState node, it adds the LoadingState node to its sources.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
+// Probably want to name the interface this implements (it's a Source?)
 class LoadingState<T = any> {
   _observers: ObserverType[] | null;
   _value: number;
@@ -221,9 +248,10 @@ class LoadingState<T = any> {
     this._value = value;
   }
 
-  // Stubbed out to match the required interface
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  updateIfNecessary() {}
+  updateIfNecessary() {
+    // Stubbed out to match the required interface
+    // (the lint rule requres at least a comment for empty functions)
+  }
 
   change(value: number) {
     this.set(this._value + value);
@@ -232,11 +260,18 @@ class LoadingState<T = any> {
   set(value: number) {
     if (this._value === value) return;
 
+    // These are named and defined pretty confusingly -- they sound like
+    // booleans. Do we just want isZero / wasZero (booleans) and a delta
+    // (+1 | -1 | 0)?
     const wasZero = Math.min(this._value, 1);
     const isZero = Math.min(value, 1);
+
     this._value = value;
     if (wasZero != isZero) {
       if (this._origin._observers) {
+        // Maintaining this "shadow graph" might be very expensive; this
+        // approach doesn't guarantee O(V+E) work AFAICT, because it pushes
+        // changes in loadingness forwards too eagerly. Worth talking through.
         for (let i = 0; i < this._origin._observers.length; i++) {
           this._origin._observers[i]._loading!.change(isZero - wasZero);
         }
@@ -271,6 +306,9 @@ function cleanup(node: Computation) {
  * When the sources do change, we create newSources and push the values that we read into it
  */
 function track(computation: SourceType) {
+  // mobx does some primitive deduplication here (keepts a field for
+  // "computation-rerun-id this was last added to" on sources); no idea if
+  // that's a win or not. (probably not?)
   if (currentObserver) {
     if (
       !newSources &&
@@ -327,11 +365,17 @@ export function update<T>(node: Computation<T>) {
       node._sources.length = newSourcesIndex;
     }
 
+    // treating the first run specially seems iffy to me, especially if the
+    // promise magic is different -- how should I/the caller be reasoning about
+    // this?
     if (node._init) {
       node.write(result);
     } else {
       if (isPromise(result)) {
         void result.then((v) => {
+          // (yes this isn't the first time this showed up) is this correct? if
+          // you depend on things that aren't ready, but you return a promise,
+          // and that promise resolves, is this the right outcome?
           node._loading!.change(-1);
           node.write(v);
         });
@@ -342,11 +386,15 @@ export function update<T>(node: Computation<T>) {
       node._init = true;
     }
 
+    // this seems sketchy vis-a-vis the "computation returns a promise" case --
+    // if we decrement the loading count when the promise resolves, we probably
+    // ought to increment it when the promise is discovered?
     if (node._loading) node._loading.set(memoLoading);
     else if (memoLoading) node._loading = new LoadingState(node, memoLoading);
   } catch (error) {
     handleError(node, error);
 
+    // How do you end up here if it wasn't dirty?
     if (node._state === STATE_DIRTY) {
       cleanup(node);
       if (node._sources) removeSourceObservers(node, 0);
@@ -387,7 +435,7 @@ function isPromise(v: unknown): v is Promise<unknown> {
  */
 export function untrack<T>(fn: () => T): T {
   if (currentObserver === null) return fn();
-  return compute<T>(getOwner(), fn, null);
+  return compute(getOwner(), fn, null);
 }
 
 export function compute<T>(
@@ -415,6 +463,10 @@ export function compute<T>(
   currentObserver = observer;
 
   try {
+    // This makes everything a fold, which looks like carryover from solid that
+    // we just haven't thought much about. IMO this is sensible for effects, and
+    // bogus for memos -- though there could be some other answer here that
+    // makes it sensible for some class of pure nodes.
     return compute(observer ? observer._value : undefined);
   } catch (e) {
     if (!(e instanceof NotReadyError)) {
