@@ -86,9 +86,10 @@ export class Computation<T = any> extends Owner {
     this._observers = null;
     this._compute = compute;
     if (isPromise(initialValue)) {
-      this._loading = new LoadingState(this, true);
+      this._loading = new LoadingState(this, false, true);
       this._value = undefined;
       void initialValue.then((value) => {
+        this._loading!.setSelf(false);
         this.write(value);
       });
     } else {
@@ -104,9 +105,8 @@ export class Computation<T = any> extends Owner {
   read(): T {
     if (this._state === STATE_DISPOSED) return this._value!;
 
-    if (this._compute) this.updateIfNecessary();
-
-    memoLoading ||= this._loading != null && this._loading._value;
+    if (this._compute) memoLoading ||= this.updateIfNecessary();
+    else if (this._loading) memoLoading ||= this._loading.isLoading();
 
     track(this);
 
@@ -118,47 +118,38 @@ export class Computation<T = any> extends Owner {
 
     if (this._compute) this.updateIfNecessary();
 
-    if (!this._loading) {
+    if (!this._loading || !this._loading.isLoading()) {
       track(this);
       return this._value!;
-    }
-
-    track(this._loading);
-
-    const isLoading = this._loading._value;
-    if (isLoading) {
+    } else {
       memoLoading = true;
+      track(this._loading);
       throw new NotReadyError();
     }
-
-    return this._value!;
   }
 
   loading(): boolean {
-    if (!this._loading) {
-      this._loading = new LoadingState(this, false);
+    if (this._loading == null) {
+      this._loading = new LoadingState(this, false, false);
     }
     this.updateIfNecessary();
     track(this._loading);
-    return this._loading._value;
+    return this._loading.isLoading();
   }
-
 
   write(value: T | Promise<T>): T {
     if (isPromise(value)) {
-      if (!this._loading) this._loading = new LoadingState(this, true);
-      else this._loading.set(true);
+      if (!this._loading) this._loading = new LoadingState(this, false, true);
+      else this._loading.setSelf(true);
       void value.then((v) => {
+        this._loading!.setSelf(false);
         this.write(v);
-        if (this._sources) this.notify(STATE_CHECK);
       });
     } else if (!this._equals || !this._equals(this._value!, value)) {
       this._value = value;
-      if (!isPromise(value)) {
-        if (this._observers) {
-          for (let i = 0; i < this._observers.length; i++) {
-            this._observers[i].notify(STATE_DIRTY);
-          }
+      if (this._observers) {
+        for (let i = 0; i < this._observers.length; i++) {
+          this._observers[i].notify(STATE_DIRTY);
         }
       }
     }
@@ -178,6 +169,9 @@ export class Computation<T = any> extends Owner {
   }
 
   updateIfNecessary() {
+    if (this._state === STATE_CLEAN)
+      return this._loading != null && this._loading.isLoading();
+
     let anyLoading = false;
     if (this._state === STATE_CHECK) {
       for (let i = 0; i < this._sources!.length; i++) {
@@ -193,11 +187,13 @@ export class Computation<T = any> extends Owner {
 
     if (this._state === STATE_DIRTY) update(this);
     else {
-      if (!anyLoading) this._loading?.set(anyLoading);
+      if (this._loading) this._loading.setAwaiting(anyLoading);
+      else if (anyLoading) this._loading = new LoadingState(this, true, false);
+
       this._state = STATE_CLEAN;
     }
 
-    return this._loading != null && this._loading._value;
+    return this._loading != null && this._loading.isLoading();
   }
 
   disposeNode() {
@@ -218,28 +214,45 @@ export class Computation<T = any> extends Owner {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 class LoadingState<T = any> implements SourceType {
   _observers: ObserverType[] | null;
-  _value: boolean;
+  _awaiting: boolean;
+  _self: boolean;
   _origin: Computation<T>;
 
-  constructor(origin: Computation<T>, value: boolean) {
+  constructor(origin: Computation<T>, value: boolean, self: boolean) {
     this._origin = origin;
     this._observers = null;
-    this._value = value;
+    this._awaiting = value;
+    this._self = self;
+  }
+
+  isLoading(): boolean {
+    return this._awaiting || this._self;
   }
 
   updateIfNecessary(): boolean {
-    return this._value;
+    this._origin.updateIfNecessary();
+    return this.isLoading();
   }
 
-  set(value: boolean) {
-    if (this._value === value) return;
+  setAwaiting(value: boolean) {
+    const wasLoading = this.isLoading();
+    this._awaiting = value;
+    const isLoading = this.isLoading();
+    if (wasLoading != isLoading) this._set(isLoading);
+  }
 
-    this._value = value;
+  setSelf(value: boolean) {
+    const wasLoading = this.isLoading();
+    this._self = value;
+    const isLoading = this.isLoading();
+    if (wasLoading != isLoading) this._set(isLoading);
+  }
 
+  _set(value: boolean) {
     if (this._origin._observers) {
       for (let i = 0; i < this._origin._observers.length; i++) {
         if (value) {
-          this._origin._observers[i]._loading!.set(true);
+          this._origin._observers[i]._loading!.setAwaiting(true);
         } else {
           this._origin._observers[i].notify(STATE_CHECK);
         }
@@ -297,6 +310,7 @@ function track(computation: SourceType) {
 export function update<T>(node: Computation<T>) {
   const prevObservers = newSources;
   const prevObserversIndex = newSourcesIndex;
+  const prevMemoLoading = memoLoading;
 
   newSources = null as Computation[] | null;
   newSourcesIndex = 0;
@@ -332,8 +346,9 @@ export function update<T>(node: Computation<T>) {
 
     node.write(result);
 
-    if (node._loading) node._loading.set(memoLoading);
-    else if (memoLoading) node._loading = new LoadingState(node, memoLoading);
+    if (node._loading) node._loading.setAwaiting(memoLoading);
+    else if (memoLoading)
+      node._loading = new LoadingState(node, memoLoading, false);
   } catch (error) {
     handleError(node, error);
 
@@ -347,6 +362,7 @@ export function update<T>(node: Computation<T>) {
 
   newSources = prevObservers;
   newSourcesIndex = prevObserversIndex;
+  memoLoading = prevMemoLoading;
 
   node._state = STATE_CLEAN;
 }
