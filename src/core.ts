@@ -155,6 +155,7 @@ export class Computation<T = any> extends Owner {
       });
     } else if (!this._equals || !this._equals(this._value!, value)) {
       this._value = value;
+      this._error = false;
       if (this._observers) {
         for (let i = 0; i < this._observers.length; i++) {
           this._observers[i].notify(STATE_DIRTY);
