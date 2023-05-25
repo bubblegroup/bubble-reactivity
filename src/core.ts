@@ -105,8 +105,12 @@ export class Computation<T = any> extends Owner {
   read(): T {
     if (this._state === STATE_DISPOSED) return this._value!;
 
-    if (this._compute) memoLoading ||= this.updateIfNecessary();
-    else if (this._loading) memoLoading ||= this._loading.isLoading();
+    if (this._compute) {
+      const isLoading = this.updateIfNecessary();
+      memoLoading ||= isLoading;
+    } else if (this._loading) {
+      memoLoading ||= this._loading.isLoading();
+    }
 
     track(this);
 
@@ -175,7 +179,8 @@ export class Computation<T = any> extends Owner {
     let anyLoading = false;
     if (this._state === STATE_CHECK) {
       for (let i = 0; i < this._sources!.length; i++) {
-        anyLoading ||= this._sources![i].updateIfNecessary();
+        const isLoading = this._sources![i].updateIfNecessary();
+        anyLoading ||= isLoading;
         if ((this._state as number) === STATE_DIRTY) {
           // Stop the loop here so we won't trigger updates on other parents unnecessarily
           // If our computation changes to no longer use some sources, we don't
