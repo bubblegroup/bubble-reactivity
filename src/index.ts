@@ -63,7 +63,7 @@ export function createRoot<T>(
   init: ((dispose: () => void) => T) | (() => T)
 ): T {
   const owner = new Owner();
-  return compute<T>(
+  return compute(
     owner,
     !init.length ? (init as () => T) : () => init(() => owner.dispose()),
     null
@@ -80,7 +80,7 @@ export function runWithOwner<T>(
   run: () => T
 ): T | undefined {
   try {
-    return compute<T>(owner, run, null);
+    return compute(owner, run, null);
   } catch (error) {
     handleError(owner, error);
   }

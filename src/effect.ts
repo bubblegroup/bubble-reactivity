@@ -1,5 +1,6 @@
 import { Computation, type MemoOptions } from "./core";
 import { STATE_CLEAN } from "./constants";
+import { handleError } from "./owner";
 
 let scheduledEffects = false;
 let runningEffects = false;
@@ -79,5 +80,8 @@ export class Effect<T = any> extends Computation<T> {
   write(value: T) {
     this._value = value;
     return value;
+  }
+  setError(error: unknown): void {
+    handleError(this, error);
   }
 }

@@ -27,7 +27,7 @@
  *     (the computations are executed in root to leaf order)
  */
 
-import { Owner, getOwner, handleError, setCurrentOwner } from "./owner";
+import { Owner, getOwner, setCurrentOwner } from "./owner";
 import {
   STATE_CHECK,
   STATE_CLEAN,
@@ -70,6 +70,7 @@ export class Computation<T = any> extends Owner {
   _sources: SourceType[] | null;
   _observers: ObserverType[] | null;
   _loading: LoadingState<T> | null;
+  _error: boolean;
   _value: T | undefined;
   _compute: null | (() => T | Promise<T>);
   name: string | undefined;
@@ -85,6 +86,7 @@ export class Computation<T = any> extends Owner {
     this._sources = null;
     this._observers = null;
     this._compute = compute;
+    this._error = false;
     if (isPromise(initialValue)) {
       this._loading = new LoadingState(this, false, true);
       this._value = undefined;
@@ -114,6 +116,7 @@ export class Computation<T = any> extends Owner {
 
     track(this);
 
+    if (this._error) throw this._value;
     return this._value!;
   }
 
@@ -124,6 +127,7 @@ export class Computation<T = any> extends Owner {
 
     if (!this._loading || !this._loading.isLoading()) {
       track(this);
+      if (this._error) throw this._value;
       return this._value!;
     } else {
       memoLoading = true;
@@ -172,9 +176,23 @@ export class Computation<T = any> extends Owner {
     }
   }
 
-  updateIfNecessary() {
-    if (this._state === STATE_CLEAN)
+  setLoading(loading: boolean) {
+    if (this._loading) this._loading.setAwaiting(loading);
+    else if (loading) this._loading = new LoadingState(this, loading, false);
+  }
+
+  setError(error: unknown) {
+    this._value = error as T;
+    this._error = true;
+  }
+
+  // This is the core part of the reactivity system, which makes sure that values that we read are
+  // always up to date. We've also adapted it to return the loading state of the computation, so that
+  // we can propagate that to the computation's observers.
+  updateIfNecessary(): boolean {
+    if (this._state === STATE_CLEAN) {
       return this._loading != null && this._loading.isLoading();
+    }
 
     let anyLoading = false;
     if (this._state === STATE_CHECK) {
@@ -235,8 +253,7 @@ class LoadingState<T = any> implements SourceType {
   }
 
   updateIfNecessary(): boolean {
-    this._origin.updateIfNecessary();
-    return this.isLoading();
+    return this._origin.updateIfNecessary();
   }
 
   setAwaiting(value: boolean) {
@@ -326,6 +343,8 @@ export function update<T>(node: Computation<T>) {
 
     const result = compute(node, node._compute!, node);
 
+    node.write(result);
+
     if (newSources) {
       if (node._sources) removeSourceObservers(node, newSourcesIndex);
 
@@ -349,18 +368,9 @@ export function update<T>(node: Computation<T>) {
       node._sources.length = newSourcesIndex;
     }
 
-    node.write(result);
-
-    if (node._loading) node._loading.setAwaiting(memoLoading);
-    else if (memoLoading)
-      node._loading = new LoadingState(node, memoLoading, false);
+    node.setLoading(memoLoading);
   } catch (error) {
-    handleError(node, error);
-
-    if (node._state === STATE_DIRTY) {
-      cleanup(node);
-      if (node._sources) removeSourceObservers(node, 0);
-    }
+    node.setError(error);
 
     return;
   }
@@ -402,7 +412,7 @@ function isEqual<T>(a: T, b: T): boolean {
  */
 export function untrack<T>(fn: () => T): T {
   if (currentObserver === null) return fn();
-  return compute<T>(getOwner(), fn, null);
+  return compute(getOwner(), fn, null);
 }
 
 export function compute<T>(
