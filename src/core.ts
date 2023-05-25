@@ -73,7 +73,7 @@ export class Computation<T = any> extends Owner {
   _value: T | undefined;
   _compute: null | (() => T | Promise<T>);
   name: string | undefined;
-  _equals: false | ((a: T, b: T) => boolean) = (a, b) => a === b;
+  _equals: false | ((a: T, b: T) => boolean) = isEqual;
   constructor(
     initialValue: T | Promise<T> | undefined,
     compute: null | (() => T | Promise<T>),
@@ -390,6 +390,10 @@ function isPromise(v: unknown): v is Promise<unknown> {
     (typeof v === "object" || typeof v === "function") &&
     typeof (v as any)?.then === "function" // eslint-disable-line
   );
+}
+
+function isEqual<T>(a: T, b: T): boolean {
+  return a === b;
 }
 
 /**
