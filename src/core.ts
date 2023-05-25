@@ -47,7 +47,7 @@ export interface MemoOptions<T> extends SignalOptions<T> {
 
 interface SourceType {
   _observers: ObserverType[] | null;
-  updateIfNecessary(): void;
+  updateIfNecessary(): boolean;
 }
 
 interface ObserverType {
@@ -62,12 +62,11 @@ interface ObserverType {
 let currentObserver: ObserverType | null = null;
 
 let newSources: SourceType[] | null = null;
-let memoLoading = 0;
+let memoLoading = false;
 let newSourcesIndex = 0;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export class Computation<T = any> extends Owner {
-  _init: boolean;
   _sources: SourceType[] | null;
   _observers: ObserverType[] | null;
   _loading: LoadingState<T> | null;
@@ -83,16 +82,14 @@ export class Computation<T = any> extends Owner {
     super(compute === null);
 
     this._state = compute ? STATE_DIRTY : STATE_CLEAN;
-    this._init = false;
     this._sources = null;
     this._observers = null;
     this._compute = compute;
     if (isPromise(initialValue)) {
-      this._loading = new LoadingState(this, 1);
+      this._loading = new LoadingState(this, true);
       this._value = undefined;
       void initialValue.then((value) => {
         this.write(value);
-        this._loading!.change(-1);
       });
     } else {
       this._value = initialValue;
@@ -109,8 +106,7 @@ export class Computation<T = any> extends Owner {
 
     if (this._compute) this.updateIfNecessary();
 
-    memoLoading +=
-      this._loading == null ? 0 : +Math.min(this._loading._value, 1);
+    memoLoading ||= this._loading != null && this._loading._value;
 
     track(this);
 
@@ -128,9 +124,10 @@ export class Computation<T = any> extends Owner {
     }
 
     track(this._loading);
-    const isLoading = this._loading._value !== 0;
+
+    const isLoading = this._loading._value;
     if (isLoading) {
-      memoLoading++;
+      memoLoading = true;
       throw new NotReadyError();
     }
 
@@ -139,19 +136,22 @@ export class Computation<T = any> extends Owner {
 
   loading(): boolean {
     if (!this._loading) {
-      this._loading = new LoadingState(this, 0);
+      this._loading = new LoadingState(this, false);
     }
+    this.updateIfNecessary();
     track(this._loading);
-    return this._loading._value !== 0;
+    return this._loading._value;
   }
+
 
   write(value: T | Promise<T>): T {
     if (isPromise(value)) {
+      if (!this._loading) this._loading = new LoadingState(this, true);
+      else this._loading.set(true);
       void value.then((v) => {
-        this._loading!.change(-1);
         this.write(v);
+        if (this._sources) this.notify(STATE_CHECK);
       });
-      memoLoading++;
     } else if (!this._equals || !this._equals(this._value!, value)) {
       this._value = value;
       if (!isPromise(value)) {
@@ -178,9 +178,10 @@ export class Computation<T = any> extends Owner {
   }
 
   updateIfNecessary() {
+    let anyLoading = false;
     if (this._state === STATE_CHECK) {
       for (let i = 0; i < this._sources!.length; i++) {
-        this._sources![i].updateIfNecessary();
+        anyLoading ||= this._sources![i].updateIfNecessary();
         if ((this._state as number) === STATE_DIRTY) {
           // Stop the loop here so we won't trigger updates on other parents unnecessarily
           // If our computation changes to no longer use some sources, we don't
@@ -191,7 +192,12 @@ export class Computation<T = any> extends Owner {
     }
 
     if (this._state === STATE_DIRTY) update(this);
-    else this._state = STATE_CLEAN;
+    else {
+      if (!anyLoading) this._loading?.set(anyLoading);
+      this._state = STATE_CLEAN;
+    }
+
+    return this._loading != null && this._loading._value;
   }
 
   disposeNode() {
@@ -210,41 +216,38 @@ export class Computation<T = any> extends Owner {
  * When a Computation node reads a LoadingState node, it adds the LoadingState node to its sources.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-class LoadingState<T = any> {
+class LoadingState<T = any> implements SourceType {
   _observers: ObserverType[] | null;
-  _value: number;
+  _value: boolean;
   _origin: Computation<T>;
 
-  constructor(origin: Computation<T>, value: number) {
+  constructor(origin: Computation<T>, value: boolean) {
     this._origin = origin;
     this._observers = null;
     this._value = value;
   }
 
-  updateIfNecessary() {
-    // Stubbed out to match the required interface
+  updateIfNecessary(): boolean {
+    return this._value;
   }
 
-  change(value: number) {
-    this.set(this._value + value);
-  }
-
-  set(value: number) {
+  set(value: boolean) {
     if (this._value === value) return;
 
-    const wasZero = Math.min(this._value, 1);
-    const isZero = Math.min(value, 1);
     this._value = value;
-    if (wasZero != isZero) {
-      if (this._origin._observers) {
-        for (let i = 0; i < this._origin._observers.length; i++) {
-          this._origin._observers[i]._loading!.change(isZero - wasZero);
+
+    if (this._origin._observers) {
+      for (let i = 0; i < this._origin._observers.length; i++) {
+        if (value) {
+          this._origin._observers[i]._loading!.set(true);
+        } else {
+          this._origin._observers[i].notify(STATE_CHECK);
         }
       }
-      if (this._observers) {
-        for (let i = 0; i < this._observers.length; i++) {
-          this._observers[i].notify(STATE_DIRTY);
-        }
+    }
+    if (this._observers) {
+      for (let i = 0; i < this._observers.length; i++) {
+        this._observers[i].notify(STATE_DIRTY);
       }
     }
   }
@@ -297,7 +300,7 @@ export function update<T>(node: Computation<T>) {
 
   newSources = null as Computation[] | null;
   newSourcesIndex = 0;
-  memoLoading = 0;
+  memoLoading = false;
 
   try {
     cleanup(node);
@@ -327,20 +330,7 @@ export function update<T>(node: Computation<T>) {
       node._sources.length = newSourcesIndex;
     }
 
-    if (node._init) {
-      node.write(result);
-    } else {
-      if (isPromise(result)) {
-        void result.then((v) => {
-          node._loading!.change(-1);
-          node.write(v);
-        });
-        memoLoading++;
-      } else {
-        node._value = result;
-      }
-      node._init = true;
-    }
+    node.write(result);
 
     if (node._loading) node._loading.set(memoLoading);
     else if (memoLoading) node._loading = new LoadingState(node, memoLoading);
