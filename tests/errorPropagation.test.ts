@@ -1,4 +1,5 @@
 import { Computation } from "../src/core";
+import { Effect, flushSync } from "../src/effect";
 
 it("should propagate errors through memos", () => {
   const m = new Computation(undefined, () => {
@@ -25,4 +26,24 @@ it("should recover from errors", () => {
   expect(() => c.read()).toThrowError("test");
   s.write(2);
   expect(() => c.read()).not.toThrow();
+});
+
+it("should subscribe to errors", () => {
+  const errorThrower = vi.fn(() => {
+    throw new Error("test");
+  });
+  const s = new Computation(1, null);
+  const m = new Computation(undefined, () => {
+    if (s.read() === 1) errorThrower();
+    else return 2;
+  });
+  let errored = false;
+  new Effect(undefined, () => {
+    errored = m.error();
+  });
+  flushSync();
+  expect(errored).toBe(true);
+  s.write(2);
+  flushSync();
+  expect(errored).toBe(false);
 });
