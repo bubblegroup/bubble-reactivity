@@ -55,7 +55,7 @@ interface ObserverType {
   notify(state: number): void;
 
   // Needed to eagerly tell observers that their sources are currently loading
-  _bits: number;
+  setLoading(loading: boolean): void;
 }
 
 let currentObserver: ObserverType | null = null;
@@ -277,7 +277,7 @@ class LoadingState<T = any> implements SourceType {
     if (this._origin._observers) {
       for (let i = 0; i < this._origin._observers.length; i++) {
         if (value) {
-          this._origin._observers[i]._bits |= WAITING_BIT;
+          this._origin._observers[i].setLoading(true);
         } else {
           this._origin._observers[i].notify(STATE_CHECK);
         }
