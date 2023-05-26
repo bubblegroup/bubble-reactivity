@@ -82,6 +82,7 @@ export class Computation<T = any> extends Owner {
   _compute: null | (() => T | Promise<T>);
   name: string | undefined;
   _equals: false | ((a: T, b: T) => boolean) = isEqual;
+  _promise: Promise<T> | null;
   constructor(
     initialValue: T | Promise<T> | undefined,
     compute: null | (() => T | Promise<T>),
@@ -96,15 +97,17 @@ export class Computation<T = any> extends Owner {
     this._bits = 0;
     this._error = null;
     this._loading = null;
+    this._promise = null;
     if (isPromise(initialValue)) {
       this._bits |= ASYNC_BIT;
       this._value = undefined;
+      this._promise = initialValue;
       initialValue
         .then((value) => {
-          this.write(value);
+          if (this._promise === initialValue) this.write(value);
         })
         .catch((e) => {
-          this.setError(e);
+          if (this._promise === initialValue) this.setError(e);
         });
     } else {
       this._value = initialValue;
@@ -168,15 +171,17 @@ export class Computation<T = any> extends Owner {
   }
 
   write(value: T | Promise<T>): T {
+    this._promise = null;
     if (isPromise(value)) {
       if ((this._bits & IS_LOADING) === 0) this._loading?.set(true);
       this._bits |= ASYNC_BIT;
+      this._promise = value;
       value
         .then((v) => {
-          this.write(v);
+          if (this._promise === value) this.write(v);
         })
         .catch((e) => {
-          this.setError(e);
+          if (this._promise === value) this.setError(e);
         });
     } else if (!this._equals || !this._equals(this._value!, value)) {
       this._value = value;

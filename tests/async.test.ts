@@ -238,7 +238,7 @@ it("should throw when a computation promise rejects", async () => {
   expect(() => m.read()).toThrow("test");
 });
 
-it.skip("should not be marked as clean if stale promise is resolved", async () => {
+it("should not be marked as clean if stale promise is resolved", async () => {
   let resolve1: (value: number) => void;
   const promise1 = new Promise<number>((r) => (resolve1 = r));
   const promise2 = new Promise<number>(() => {
