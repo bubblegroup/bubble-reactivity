@@ -1,5 +1,6 @@
 import { createEffect, flushSync } from "../src";
 import { Computation } from "../src/core";
+import { Effect } from "../src/effect";
 
 it("should propagate loading state when calling read", async () => {
   let resolve: (value: unknown) => void;
@@ -147,4 +148,50 @@ it("should handle .wait() on async memos", async () => {
   chain.read();
   expect(compute).toBeCalledTimes(1);
   expect(before).toBeCalledTimes(2);
+});
+
+it("should handle async propagation to an effect resetting when value changes", () => {
+  const promiseFactory = vi.fn(() => {
+    return new Promise(() => {
+      // never resolves
+    });
+  });
+  const s = new Computation(1, null);
+  const m = new Computation(undefined, () => {
+    if (s.read() === 1) return promiseFactory();
+    else return 2;
+  });
+  let loading = false;
+  new Effect(undefined, () => {
+    loading = m.loading();
+  });
+  flushSync();
+  expect(loading).toBe(true);
+  s.write(2);
+  flushSync();
+  expect(loading).toBe(false);
+});
+
+it("should handle async propagation to an effect completing", async () => {
+  let resolve1: (value: number) => void;
+  const promiseFactory = vi.fn(() => {
+    return new Promise<number>((r) => (resolve1 = r));
+  });
+  const s = new Computation(1, null);
+  const m = new Computation(undefined, () => {
+    if (s.read() === 1) return promiseFactory();
+    else return 2;
+  });
+  let loading = false;
+  new Effect(undefined, () => {
+    loading = m.loading();
+  });
+  flushSync();
+  expect(loading).toBe(true);
+  resolve1!(1);
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  flushSync();
+  expect(loading).toBe(false);
 });

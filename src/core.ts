@@ -100,8 +100,6 @@ export class Computation<T = any> extends Owner {
       this._bits |= ASYNC_BIT;
       this._value = undefined;
       void initialValue.then((value) => {
-        if ((this._bits & WAITING_BIT) === 0) this._loading?.set(false);
-        this._bits &= ~ASYNC_BIT;
         this.write(value);
       });
     } else {
@@ -152,9 +150,8 @@ export class Computation<T = any> extends Owner {
     if (this._loading === null) {
       this._loading = new LoadingState(this);
     }
-    this.updateIfNecessary();
     track(this._loading);
-    return (this._bits & IS_LOADING) !== 0;
+    return this.updateIfNecessary();
   }
 
   error(): boolean {
@@ -170,14 +167,13 @@ export class Computation<T = any> extends Owner {
     if (isPromise(value)) {
       if ((this._bits & IS_LOADING) === 0) this._loading?.set(true);
       this._bits |= ASYNC_BIT;
-
       void value.then((v) => {
-        this._bits &= ~ASYNC_BIT;
-        if ((this._bits & WAITING_BIT) === 0) this._loading?.set(false);
         this.write(v);
       });
     } else if (!this._equals || !this._equals(this._value!, value)) {
       this._value = value;
+      if ((this._bits & WAITING_BIT) === 0) this._loading?.set(false);
+      this._bits &= ~ASYNC_BIT;
       if ((this._bits & ERROR_BIT) !== 0) this._error?.set();
       this._bits &= ~ERROR_BIT;
       if (this._observers) {
@@ -199,6 +195,8 @@ export class Computation<T = any> extends Owner {
         this._observers[i].notify(STATE_CHECK);
       }
     }
+    if (this._loading) this._loading.notify(STATE_CHECK);
+    if (this._error) this._error.notify(STATE_CHECK);
   }
 
   setLoading(loading: boolean) {
@@ -283,9 +281,12 @@ class LoadingState<T = any> implements SourceType {
         }
       }
     }
+    this.notify(STATE_DIRTY);
+  }
+  notify(state: number) {
     if (this._observers) {
       for (let i = 0; i < this._observers.length; i++) {
-        this._observers[i].notify(STATE_DIRTY);
+        this._observers[i].notify(state);
       }
     }
   }
@@ -305,9 +306,13 @@ class ErrorState<T> implements SourceType {
   }
 
   set() {
+    this.notify(STATE_DIRTY);
+  }
+
+  notify(state: number) {
     if (this._observers) {
       for (let i = 0; i < this._observers.length; i++) {
-        this._observers[i].notify(STATE_DIRTY);
+        this._observers[i].notify(state);
       }
     }
   }
