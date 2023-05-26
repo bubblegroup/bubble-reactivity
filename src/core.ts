@@ -54,9 +54,8 @@ interface ObserverType {
   _sources: SourceType[] | null;
   notify(state: number): void;
 
-  // Needed to handle a second eager propagation pass of number of parents that currently have
-  // a promise pending
-  _loading: LoadingState | null;
+  // Needed to eagerly tell observers that their sources are currently loading
+  _bits: number;
 }
 
 let currentObserver: ObserverType | null = null;
@@ -65,12 +64,20 @@ let newSources: SourceType[] | null = null;
 let memoLoading = false;
 let newSourcesIndex = 0;
 
+const ERROR_BIT = 1;
+const WAITING_BIT = 2;
+const ASYNC_BIT = 4;
+
+const IS_LOADING = ASYNC_BIT | WAITING_BIT;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export class Computation<T = any> extends Owner {
   _sources: SourceType[] | null;
   _observers: ObserverType[] | null;
   _loading: LoadingState<T> | null;
-  _error: boolean;
+  _error: ErrorState<T> | null;
+  // 1=value was thrown, 2=waiting on a source that is loading, 4=value is a promise
+  _bits: number;
   _value: T | undefined;
   _compute: null | (() => T | Promise<T>);
   name: string | undefined;
@@ -86,17 +93,19 @@ export class Computation<T = any> extends Owner {
     this._sources = null;
     this._observers = null;
     this._compute = compute;
-    this._error = false;
+    this._bits = 0;
+    this._error = null;
+    this._loading = null;
     if (isPromise(initialValue)) {
-      this._loading = new LoadingState(this, false, true);
+      this._bits |= ASYNC_BIT;
       this._value = undefined;
       void initialValue.then((value) => {
-        this._loading!.setSelf(false);
+        if ((this._bits & WAITING_BIT) === 0) this._loading?.set(false);
+        this._bits &= ~ASYNC_BIT;
         this.write(value);
       });
     } else {
       this._value = initialValue;
-      this._loading = null;
     }
 
     if (__DEV__)
@@ -110,13 +119,13 @@ export class Computation<T = any> extends Owner {
     if (this._compute) {
       const isLoading = this.updateIfNecessary();
       memoLoading ||= isLoading;
-    } else if (this._loading) {
-      memoLoading ||= this._loading.isLoading();
+    } else {
+      memoLoading ||= (this._bits & IS_LOADING) !== 0;
     }
 
     track(this);
 
-    if (this._error) throw this._value;
+    if (this._bits & ERROR_BIT) throw this._value;
     return this._value!;
   }
 
@@ -125,37 +134,52 @@ export class Computation<T = any> extends Owner {
 
     if (this._compute) this.updateIfNecessary();
 
-    if (!this._loading || !this._loading.isLoading()) {
+    if ((this._bits & IS_LOADING) === 0) {
       track(this);
-      if (this._error) throw this._value;
+      if (this._bits & ERROR_BIT) throw this._value;
       return this._value!;
     } else {
       memoLoading = true;
+      if (this._loading === null) {
+        this._loading = new LoadingState(this);
+      }
       track(this._loading);
       throw new NotReadyError();
     }
   }
 
   loading(): boolean {
-    if (this._loading == null) {
-      this._loading = new LoadingState(this, false, false);
+    if (this._loading === null) {
+      this._loading = new LoadingState(this);
     }
     this.updateIfNecessary();
     track(this._loading);
-    return this._loading.isLoading();
+    return (this._bits & IS_LOADING) !== 0;
+  }
+
+  error(): boolean {
+    if (this._error === null) {
+      this._error = new ErrorState(this);
+    }
+    this.updateIfNecessary();
+    track(this._error);
+    return (this._bits & ERROR_BIT) !== 0;
   }
 
   write(value: T | Promise<T>): T {
     if (isPromise(value)) {
-      if (!this._loading) this._loading = new LoadingState(this, false, true);
-      else this._loading.setSelf(true);
+      if ((this._bits & IS_LOADING) === 0) this._loading?.set(true);
+      this._bits |= ASYNC_BIT;
+
       void value.then((v) => {
-        this._loading!.setSelf(false);
+        this._bits &= ~ASYNC_BIT;
+        if ((this._bits & WAITING_BIT) === 0) this._loading?.set(false);
         this.write(v);
       });
     } else if (!this._equals || !this._equals(this._value!, value)) {
       this._value = value;
-      this._error = false;
+      if ((this._bits & ERROR_BIT) !== 0) this._error?.set();
+      this._bits &= ~ERROR_BIT;
       if (this._observers) {
         for (let i = 0; i < this._observers.length; i++) {
           this._observers[i].notify(STATE_DIRTY);
@@ -178,13 +202,17 @@ export class Computation<T = any> extends Owner {
   }
 
   setLoading(loading: boolean) {
-    if (this._loading) this._loading.setAwaiting(loading);
-    else if (loading) this._loading = new LoadingState(this, loading, false);
+    if (loading !== ((this._bits & ASYNC_BIT) !== 0)) {
+      this._loading?.set(loading);
+    }
+    this._bits &= ~WAITING_BIT;
+    if (loading) this._bits |= WAITING_BIT;
   }
 
   setError(error: unknown) {
+    if ((this._bits & ERROR_BIT) === 0) this._error?.set();
     this._value = error as T;
-    this._error = true;
+    this._bits |= ERROR_BIT;
   }
 
   // This is the core part of the reactivity system, which makes sure that values that we read are
@@ -192,7 +220,7 @@ export class Computation<T = any> extends Owner {
   // we can propagate that to the computation's observers.
   updateIfNecessary(): boolean {
     if (this._state === STATE_CLEAN) {
-      return this._loading != null && this._loading.isLoading();
+      return (this._bits & IS_LOADING) !== 0;
     }
 
     let anyLoading = false;
@@ -211,13 +239,12 @@ export class Computation<T = any> extends Owner {
 
     if (this._state === STATE_DIRTY) update(this);
     else {
-      if (this._loading) this._loading.setAwaiting(anyLoading);
-      else if (anyLoading) this._loading = new LoadingState(this, true, false);
+      this.setLoading(anyLoading);
 
       this._state = STATE_CLEAN;
     }
 
-    return this._loading != null && this._loading.isLoading();
+    return (this._bits & IS_LOADING) !== 0;
   }
 
   disposeNode() {
@@ -229,58 +256,55 @@ export class Computation<T = any> extends Owner {
 }
 
 /**
- * We attach a LoadingState node to each Computation node to track async sources.
- * When a Computation node returns an async value it creates a LoadingState node with value 1.
- * When the async value resolves, it calls change(-1) on the LoadingState node.
- *
+ * We attach a LoadingState node to each Computation node to track async sources
  * When a Computation node reads a LoadingState node, it adds the LoadingState node to its sources.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 class LoadingState<T = any> implements SourceType {
   _observers: ObserverType[] | null;
-  _awaiting: boolean;
-  _self: boolean;
   _origin: Computation<T>;
 
-  constructor(origin: Computation<T>, value: boolean, self: boolean) {
+  constructor(origin: Computation<T>) {
     this._origin = origin;
     this._observers = null;
-    this._awaiting = value;
-    this._self = self;
-  }
-
-  isLoading(): boolean {
-    return this._awaiting || this._self;
   }
 
   updateIfNecessary(): boolean {
     return this._origin.updateIfNecessary();
   }
 
-  setAwaiting(value: boolean) {
-    const wasLoading = this.isLoading();
-    this._awaiting = value;
-    const isLoading = this.isLoading();
-    if (wasLoading != isLoading) this._set(isLoading);
-  }
-
-  setSelf(value: boolean) {
-    const wasLoading = this.isLoading();
-    this._self = value;
-    const isLoading = this.isLoading();
-    if (wasLoading != isLoading) this._set(isLoading);
-  }
-
-  _set(value: boolean) {
+  set(value: boolean) {
     if (this._origin._observers) {
       for (let i = 0; i < this._origin._observers.length; i++) {
         if (value) {
-          this._origin._observers[i]._loading!.setAwaiting(true);
+          this._origin._observers[i]._bits |= WAITING_BIT;
         } else {
           this._origin._observers[i].notify(STATE_CHECK);
         }
       }
     }
+    if (this._observers) {
+      for (let i = 0; i < this._observers.length; i++) {
+        this._observers[i].notify(STATE_DIRTY);
+      }
+    }
+  }
+}
+
+class ErrorState<T> implements SourceType {
+  _observers: ObserverType[] | null;
+  _origin: Computation<T>;
+
+  constructor(origin: Computation<T>) {
+    this._origin = origin;
+    this._observers = null;
+  }
+
+  updateIfNecessary(): boolean {
+    return this._origin.updateIfNecessary();
+  }
+
+  set() {
     if (this._observers) {
       for (let i = 0; i < this._observers.length; i++) {
         this._observers[i].notify(STATE_DIRTY);
@@ -314,7 +338,7 @@ function track(computation: SourceType) {
     if (
       !newSources &&
       currentObserver._sources &&
-      currentObserver._sources[newSourcesIndex] == computation
+      currentObserver._sources[newSourcesIndex] === computation
     ) {
       newSourcesIndex++;
     } else if (!newSources) newSources = [computation];
