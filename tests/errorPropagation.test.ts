@@ -1,5 +1,5 @@
-import { Computation } from "../src/core";
 import { Effect, flushSync } from "../src/effect";
+import { Computation } from "../src/core";
 
 it("should propagate errors through memos", () => {
   const m = new Computation(undefined, () => {
