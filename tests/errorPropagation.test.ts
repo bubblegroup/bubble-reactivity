@@ -32,9 +32,9 @@ it("should subscribe to errors", () => {
   const errorThrower = vi.fn(() => {
     throw new Error("test");
   });
-  const s = new Computation(1, null);
+  const s = new Computation(false, null);
   const m = new Computation(undefined, () => {
-    if (s.read() === 1) errorThrower();
+    if (s.read()) errorThrower();
     else return 2;
   });
   let errored = false;
@@ -42,8 +42,8 @@ it("should subscribe to errors", () => {
     errored = m.error();
   });
   flushSync();
-  expect(errored).toBe(true);
-  s.write(2);
-  flushSync();
   expect(errored).toBe(false);
+  s.write(true);
+  flushSync();
+  expect(errored).toBe(true);
 });

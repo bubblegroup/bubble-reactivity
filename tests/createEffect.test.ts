@@ -341,3 +341,25 @@ it("should run parent effect before child effect", () => {
   flushSync();
   expect(calls).toBe(2);
 });
+
+it("should run parent memo before child effect", () => {
+  const [$x, setX] = createSignal(0);
+  const $condition = createMemo(() => $x());
+
+  let calls = 0;
+
+  const m = createMemo(() => {
+    createEffect(() => {
+      $x();
+      calls++;
+    });
+
+    $condition();
+  });
+
+  m();
+  flushSync();
+  setX(1);
+  flushSync();
+  expect(calls).toBe(2);
+});

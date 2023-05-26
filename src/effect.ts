@@ -22,7 +22,7 @@ function flushEffects() {
 /**
  * When reexecuting nodes, we want to be extra careful to avoid double execution of nested owners
  * In particular, it is important that we check all of our parents to see if they will rerun
- * See tests/createEffect: "should run parent effect before child effect"
+ * See tests/createEffect: "should run parent effect before child effect" and "should run parent memo before child effect"
  */
 function runTop(node: Computation) {
   const ancestors = [node];

@@ -195,3 +195,41 @@ it("should handle async propagation to an effect completing", async () => {
   flushSync();
   expect(loading).toBe(false);
 });
+
+it("should mark downstream async memos as loading on returning a promise", () => {
+  const unresolvedPromise = new Promise<number>(() => {
+    // never resolves
+  });
+  const s = new Computation(false, null);
+  const m = new Computation(undefined, () => {
+    if (s.read()) return unresolvedPromise;
+    else return 2;
+  });
+  const m2 = new Computation(undefined, () => m.read());
+  expect(m.loading()).toBe(false);
+  expect(m2.loading()).toBe(false);
+  s.write(true);
+  expect(m2.loading()).toBe(true);
+});
+
+it.skip("should not be marked as clean if stale promise is resolved", async () => {
+  let resolve1: (value: number) => void;
+  const promise1 = new Promise<number>((r) => (resolve1 = r));
+  const promise2 = new Promise<number>(() => {
+    // never resolves
+  });
+  const switcher = new Computation(true, null);
+  const comp1 = new Computation(undefined, () => {
+    if (switcher.read()) return promise1;
+    else return promise2;
+  });
+  const waiting = vi.fn(() => comp1.read());
+  const comp2 = new Computation(undefined, waiting);
+  expect(comp2.loading()).toBe(true);
+  expect(waiting).toBeCalledTimes(1);
+  switcher.write(false);
+  expect(comp2.loading()).toBe(true);
+  resolve1!(1);
+  await Promise.resolve();
+  expect(comp2.loading()).toBe(true);
+});

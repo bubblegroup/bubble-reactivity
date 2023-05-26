@@ -195,8 +195,8 @@ export class Computation<T = any> extends Owner {
         this._observers[i].notify(STATE_CHECK);
       }
     }
-    if (this._loading) this._loading.notify(STATE_CHECK);
-    if (this._error) this._error.notify(STATE_CHECK);
+    this._loading?.notify(STATE_CHECK);
+    this._error?.notify(STATE_CHECK);
   }
 
   setLoading(loading: boolean) {
