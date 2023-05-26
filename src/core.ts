@@ -99,9 +99,13 @@ export class Computation<T = any> extends Owner {
     if (isPromise(initialValue)) {
       this._bits |= ASYNC_BIT;
       this._value = undefined;
-      void initialValue.then((value) => {
-        this.write(value);
-      });
+      initialValue
+        .then((value) => {
+          this.write(value);
+        })
+        .catch((e) => {
+          this.setError(e);
+        });
     } else {
       this._value = initialValue;
     }
@@ -167,9 +171,13 @@ export class Computation<T = any> extends Owner {
     if (isPromise(value)) {
       if ((this._bits & IS_LOADING) === 0) this._loading?.set(true);
       this._bits |= ASYNC_BIT;
-      void value.then((v) => {
-        this.write(v);
-      });
+      value
+        .then((v) => {
+          this.write(v);
+        })
+        .catch((e) => {
+          this.setError(e);
+        });
     } else if (!this._equals || !this._equals(this._value!, value)) {
       this._value = value;
       if ((this._bits & WAITING_BIT) === 0) this._loading?.set(false);

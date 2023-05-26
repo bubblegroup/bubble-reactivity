@@ -212,6 +212,32 @@ it("should mark downstream async memos as loading on returning a promise", () =>
   expect(m2.loading()).toBe(true);
 });
 
+it("should throw when a promise rejects", async () => {
+  let reject1: () => void;
+  const rejectedPromise = new Promise<number>((_, reject) => {
+    reject1 = () => reject(new Error("test"));
+  });
+  const m = new Computation(rejectedPromise, null);
+  m.read();
+  reject1!();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(() => m.read()).toThrow("test");
+});
+
+it("should throw when a computation promise rejects", async () => {
+  let reject1: () => void;
+  const rejectedPromise = new Promise<number>((_, reject) => {
+    reject1 = () => reject(new Error("test"));
+  });
+  const m = new Computation(undefined, () => rejectedPromise);
+  m.read();
+  reject1!();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(() => m.read()).toThrow("test");
+});
+
 it.skip("should not be marked as clean if stale promise is resolved", async () => {
   let resolve1: (value: number) => void;
   const promise1 = new Promise<number>((r) => (resolve1 = r));
