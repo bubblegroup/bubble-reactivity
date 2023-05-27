@@ -61,8 +61,8 @@ interface ObserverType {
 let currentObserver: ObserverType | null = null;
 
 let newSources: SourceType[] | null = null;
-let memoLoading = false;
 let newSourcesIndex = 0;
+let newLoadingState = false;
 
 const ERROR_BIT = 1;
 const WAITING_BIT = 2;
@@ -71,35 +71,39 @@ const ASYNC_BIT = 4;
 const IS_LOADING = ASYNC_BIT | WAITING_BIT;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export class Computation<T = any> extends Owner {
-  _sources: SourceType[] | null;
-  _observers: ObserverType[] | null;
-  _loading: LoadingState<T> | null;
-  _error: ErrorState<T> | null;
-  // 1=value was thrown, 2=waiting on a source that is loading, 4=value is a promise
-  _bits: number;
+export class Computation<T = any>
+  extends Owner
+  implements SourceType, ObserverType
+{
+  _sources: SourceType[] | null = null;
+  _observers: ObserverType[] | null = null;
   _value: T | undefined;
   _compute: null | (() => T | Promise<T>);
   name: string | undefined;
   _equals: false | ((a: T, b: T) => boolean) = isEqual;
-  _promise: Promise<T> | null;
+
+  // 1=value was thrown, 2=waiting on a source that is loading, 4=value is a promise
+  _stateFlags = 0;
+  _error: ErrorState<T> | null = null;
+  _promise: Promise<T> | null = null;
+  _loading: LoadingState<T> | null = null;
+
   constructor(
     initialValue: T | Promise<T> | undefined,
     compute: null | (() => T | Promise<T>),
     options?: MemoOptions<T>
   ) {
+    // Initialize self as a node in the Owner tree, for tracking cleanups.
+    // If we aren't passed a compute function, we don't need to track nested computations
+    // because there is no way to create a nested computation (which would add an element to the owner tree)
     super(compute === null);
 
-    this._state = compute ? STATE_DIRTY : STATE_CLEAN;
-    this._sources = null;
-    this._observers = null;
     this._compute = compute;
-    this._bits = 0;
-    this._error = null;
-    this._loading = null;
-    this._promise = null;
+
+    this._state = compute ? STATE_DIRTY : STATE_CLEAN;
+
     if (isPromise(initialValue)) {
-      this._bits |= ASYNC_BIT;
+      this._stateFlags |= ASYNC_BIT;
       this._value = undefined;
       this._promise = initialValue;
       initialValue
@@ -123,14 +127,14 @@ export class Computation<T = any> extends Owner {
 
     if (this._compute) {
       const isLoading = this.updateIfNecessary();
-      memoLoading ||= isLoading;
+      if (isLoading) newLoadingState = true;
     } else {
-      memoLoading ||= (this._bits & IS_LOADING) !== 0;
+      if ((this._stateFlags & IS_LOADING) !== 0) newLoadingState = true;
     }
 
     track(this);
 
-    if (this._bits & ERROR_BIT) throw this._value;
+    if (this._stateFlags & ERROR_BIT) throw this._value;
     return this._value!;
   }
 
@@ -139,18 +143,19 @@ export class Computation<T = any> extends Owner {
 
     if (this._compute) this.updateIfNecessary();
 
-    if ((this._bits & IS_LOADING) === 0) {
-      track(this);
-      if (this._bits & ERROR_BIT) throw this._value;
-      return this._value!;
-    } else {
-      memoLoading = true;
+    if ((this._stateFlags & IS_LOADING) !== 0) {
+      newLoadingState = true;
       if (this._loading === null) {
         this._loading = new LoadingState(this);
       }
       track(this._loading);
       throw new NotReadyError();
     }
+
+    track(this);
+
+    if (this._stateFlags & ERROR_BIT) throw this._value;
+    return this._value!;
   }
 
   loading(): boolean {
@@ -167,14 +172,14 @@ export class Computation<T = any> extends Owner {
     }
     this.updateIfNecessary();
     track(this._error);
-    return (this._bits & ERROR_BIT) !== 0;
+    return (this._stateFlags & ERROR_BIT) !== 0;
   }
 
   write(value: T | Promise<T>): T {
     this._promise = null;
     if (isPromise(value)) {
-      if ((this._bits & IS_LOADING) === 0) this._loading?.set(true);
-      this._bits |= ASYNC_BIT;
+      if ((this._stateFlags & IS_LOADING) === 0) this._loading?.set(true);
+      this._stateFlags |= ASYNC_BIT;
       this._promise = value;
       value
         .then((v) => {
@@ -185,10 +190,10 @@ export class Computation<T = any> extends Owner {
         });
     } else if (!this._equals || !this._equals(this._value!, value)) {
       this._value = value;
-      if ((this._bits & WAITING_BIT) === 0) this._loading?.set(false);
-      this._bits &= ~ASYNC_BIT;
-      if ((this._bits & ERROR_BIT) !== 0) this._error?.set();
-      this._bits &= ~ERROR_BIT;
+      if ((this._stateFlags & WAITING_BIT) === 0) this._loading?.set(false);
+      this._stateFlags &= ~ASYNC_BIT;
+      if ((this._stateFlags & ERROR_BIT) !== 0) this._error?.set();
+      this._stateFlags &= ~ERROR_BIT;
       if (this._observers) {
         for (let i = 0; i < this._observers.length; i++) {
           this._observers[i].notify(STATE_DIRTY);
@@ -213,17 +218,17 @@ export class Computation<T = any> extends Owner {
   }
 
   setLoading(loading: boolean) {
-    if (loading !== ((this._bits & ASYNC_BIT) !== 0)) {
+    if (loading !== ((this._stateFlags & ASYNC_BIT) !== 0)) {
       this._loading?.set(loading);
     }
-    this._bits &= ~WAITING_BIT;
-    if (loading) this._bits |= WAITING_BIT;
+    this._stateFlags &= ~WAITING_BIT;
+    if (loading) this._stateFlags |= WAITING_BIT;
   }
 
   setError(error: unknown) {
-    if ((this._bits & ERROR_BIT) === 0) this._error?.set();
+    if ((this._stateFlags & ERROR_BIT) === 0) this._error?.set();
     this._value = error as T;
-    this._bits |= ERROR_BIT;
+    this._stateFlags |= ERROR_BIT;
   }
 
   // This is the core part of the reactivity system, which makes sure that values that we read are
@@ -231,14 +236,14 @@ export class Computation<T = any> extends Owner {
   // we can propagate that to the computation's observers.
   updateIfNecessary(): boolean {
     if (this._state === STATE_CLEAN) {
-      return (this._bits & IS_LOADING) !== 0;
+      return (this._stateFlags & IS_LOADING) !== 0;
     }
 
     let anyLoading = false;
     if (this._state === STATE_CHECK) {
       for (let i = 0; i < this._sources!.length; i++) {
         const isLoading = this._sources![i].updateIfNecessary();
-        anyLoading ||= isLoading;
+        if (isLoading) anyLoading = true;
         if ((this._state as number) === STATE_DIRTY) {
           // Stop the loop here so we won't trigger updates on other parents unnecessarily
           // If our computation changes to no longer use some sources, we don't
@@ -255,7 +260,7 @@ export class Computation<T = any> extends Owner {
       this._state = STATE_CLEAN;
     }
 
-    return (this._bits & IS_LOADING) !== 0;
+    return (this._stateFlags & IS_LOADING) !== 0;
   }
 
   disposeNode() {
@@ -365,21 +370,20 @@ function track(computation: SourceType) {
 }
 
 /**
- * This is the main tracking code when a computation's _compute function is rerun.
- * It handles the updating of sources and observers, disposal of previous executions,
- * and error handling if the _compute function throws.
+ * Reruns a computation's _compute function, producing a new value and keeping track of dependencies.
  *
- * It also checks the count of asynchronous computations and sets the node's loading state (lstate)
- * to the number of sources that are currently waiting on a value or have any parents waiting on a value
+ * It handles the updating of sources and observers, disposal of previous executions,
+ * and error handling if the _compute function throws. It also sets the node as loading
+ * if it read any parents that are currently loading.
  */
 export function update<T>(node: Computation<T>) {
-  const prevObservers = newSources;
-  const prevObserversIndex = newSourcesIndex;
-  const prevMemoLoading = memoLoading;
+  const prevSources = newSources;
+  const prevSourcesIndex = newSourcesIndex;
+  const prevLoadingState = newLoadingState;
 
   newSources = null as Computation[] | null;
   newSourcesIndex = 0;
-  memoLoading = false;
+  newLoadingState = false;
 
   try {
     cleanup(node);
@@ -411,16 +415,16 @@ export function update<T>(node: Computation<T>) {
       node._sources.length = newSourcesIndex;
     }
 
-    node.setLoading(memoLoading);
+    node.setLoading(newLoadingState);
   } catch (error) {
     node.setError(error);
 
     return;
   }
 
-  newSources = prevObservers;
-  newSourcesIndex = prevObserversIndex;
-  memoLoading = prevMemoLoading;
+  newSources = prevSources;
+  newSourcesIndex = prevSourcesIndex;
+  newLoadingState = prevLoadingState;
 
   node._state = STATE_CLEAN;
 }
