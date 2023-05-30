@@ -80,6 +80,9 @@ export class Computation<T = any>
   _value: T | undefined;
   _compute: null | (() => T | Promise<T>);
   name: string | undefined;
+
+  // Ideally we would set this default value on the prototype directly, but doing that in typescript causes issues
+  // One alternative would be to define _equals on Owner, but benchmarking hasn't shown a substantial impact
   _equals: false | ((a: T, b: T) => boolean) = isEqual;
 
   // 1=value was thrown, 2=waiting on a source that is loading, 4=value is a promise
@@ -102,37 +105,49 @@ export class Computation<T = any>
 
     this._state = compute ? STATE_DIRTY : STATE_CLEAN;
 
+    // If the initial value passed in is a promise, we need to track it
     if (isPromise(initialValue)) {
       this._stateFlags |= ASYNC_BIT;
+
+      // Early reads to this computation will return this value (undefined). If that behavior is not desired,
+      // the user should call .wait() on the computation to wait for the promise to resolve
       this._value = undefined;
+
+      // Keep track of the latest promise, that way if a new promise is written
+      // before the first one resolves, we can ignore the first one
       this._promise = initialValue;
+
+      // When the promise resolves, we need to update our value
       initialValue
         .then((value) => {
+          // Writing a new value (that is not a promise) will automatically update the state to "no longer loading"
           if (this._promise === initialValue) this.write(value);
         })
         .catch((e) => {
+          // When the promise errors, we need to set an error state so that future reads of this
+          // computation will re-throw the error (until a new value is written/recomputed)
           if (this._promise === initialValue) this.setError(e);
         });
     } else {
+      // If the initial value is not a promise, we just set it directly
       this._value = initialValue;
     }
 
+    // Used when debugging the graph; it is often helpful to know the names of sources/observers
     if (__DEV__)
       this.name = options?.name ?? (this._compute ? "computed" : "signal");
+
     if (options && options.equals !== undefined) this._equals = options.equals;
   }
 
   read(): T {
     if (this._state === STATE_DISPOSED) return this._value!;
 
-    if (this._compute) {
-      const isLoading = this.updateIfNecessary();
-      if (isLoading) newLoadingState = true;
-    } else {
-      if ((this._stateFlags & IS_LOADING) !== 0) newLoadingState = true;
-    }
+    if (this._compute) this.updateIfNecessary();
 
     track(this);
+
+    if ((this._stateFlags & IS_LOADING) !== 0) newLoadingState = true;
 
     if (this._stateFlags & ERROR_BIT) throw this._value;
     return this._value!;
@@ -143,16 +158,13 @@ export class Computation<T = any>
 
     if (this._compute) this.updateIfNecessary();
 
+    track(this);
+
     if ((this._stateFlags & IS_LOADING) !== 0) {
       newLoadingState = true;
-      if (this._loading === null) {
-        this._loading = new LoadingState(this);
-      }
-      track(this._loading);
+
       throw new NotReadyError();
     }
-
-    track(this);
 
     if (this._stateFlags & ERROR_BIT) throw this._value;
     return this._value!;
