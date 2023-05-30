@@ -145,18 +145,7 @@ export class Computation<T = any>
     if (options && options.equals !== undefined) this._equals = options.equals;
   }
 
-  read(): T {
-    if (this._compute) this._updateIfNecessary();
-
-    track(this);
-
-    if (this._isLoading()) newLoadingState = true;
-
-    if (this._stateFlags & ERROR_BIT) throw this._value;
-    return this._value!;
-  }
-
-  wait(): T {
+  _read(shouldThrow: boolean): T {
     if (this._compute) this._updateIfNecessary();
 
     track(this);
@@ -164,11 +153,19 @@ export class Computation<T = any>
     if (this._isLoading()) {
       newLoadingState = true;
 
-      throw new NotReadyError();
+      if (shouldThrow) throw new NotReadyError();
     }
 
     if (this._stateFlags & ERROR_BIT) throw this._value;
     return this._value!;
+  }
+
+  read(): T {
+    return this._read(false);
+  }
+
+  wait(): T {
+    return this._read(true);
   }
 
   loading(): boolean {
