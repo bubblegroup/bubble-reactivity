@@ -84,16 +84,16 @@ export class Owner {
 
     while (current && current._parent === this) {
       current.dispose(true);
-      current.disposeNode();
+      current._disposeNode();
       current = current._nextSibling as Computation;
     }
 
-    if (self) this.disposeNode();
+    if (self) this._disposeNode();
     if (current) current._prevSibling = !self ? this : this._prevSibling;
     if (head) head._nextSibling = current;
   }
 
-  disposeNode() {
+  _disposeNode() {
     if (this._prevSibling) this._prevSibling._nextSibling = null;
     this._parent = null;
     this._prevSibling = null;

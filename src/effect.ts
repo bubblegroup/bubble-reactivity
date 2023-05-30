@@ -33,7 +33,7 @@ function runTop(node: Computation) {
   }
   for (let i = ancestors.length - 1; i >= 0; i--) {
     if (ancestors[i]._state !== STATE_DISPOSED)
-      ancestors[i].updateIfNecessary();
+      ancestors[i]._updateIfNecessary();
   }
 }
 
@@ -68,7 +68,7 @@ export class Effect<T = any> extends Computation<T> {
     super(initialValue, compute, options);
     effects.push(this);
   }
-  notify(state: number): void {
+  _notify(state: number): void {
     if (this._state >= state) return;
 
     if (this._state === STATE_CLEAN) {
@@ -82,7 +82,7 @@ export class Effect<T = any> extends Computation<T> {
     this._value = value;
     return value;
   }
-  setError(error: unknown): void {
+  _setError(error: unknown): void {
     handleError(this, error);
   }
 }

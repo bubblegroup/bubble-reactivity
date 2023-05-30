@@ -47,15 +47,18 @@ export interface MemoOptions<T> extends SignalOptions<T> {
 
 interface SourceType {
   _observers: ObserverType[] | null;
-  updateIfNecessary(): boolean;
+  _updateIfNecessary(): void;
+
+  // Needed to lazily update to not loading
+  _isLoading(): boolean;
 }
 
 interface ObserverType {
   _sources: SourceType[] | null;
-  notify(state: number): void;
+  _notify(state: number): void;
 
-  // Needed to eagerly tell observers that their sources are currently loading
-  setLoading(loading: boolean): void;
+  // Needed to eagerly tell observers that their sources are currently loading (and thus they are too)
+  _setWaiting(loading: boolean): void;
 }
 
 let currentObserver: ObserverType | null = null;
@@ -66,9 +69,9 @@ let newLoadingState = false;
 
 const ERROR_BIT = 1;
 const WAITING_BIT = 2;
-const ASYNC_BIT = 4;
+const SELF_ASYNC_BIT = 4;
 
-const IS_LOADING = ASYNC_BIT | WAITING_BIT;
+const IS_LOADING = SELF_ASYNC_BIT | WAITING_BIT;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export class Computation<T = any>
@@ -79,7 +82,9 @@ export class Computation<T = any>
   _observers: ObserverType[] | null = null;
   _value: T | undefined;
   _compute: null | (() => T | Promise<T>);
-  name: string | undefined;
+
+  // Used in __DEV__ mode, hopefully removed in production
+  _name: string | undefined;
 
   // Ideally we would set this default value on the prototype directly, but doing that in typescript causes issues
   // One alternative would be to define _equals on Owner, but benchmarking hasn't shown a substantial impact
@@ -107,7 +112,7 @@ export class Computation<T = any>
 
     // If the initial value passed in is a promise, we need to track it
     if (isPromise(initialValue)) {
-      this._stateFlags |= ASYNC_BIT;
+      this._stateFlags |= SELF_ASYNC_BIT;
 
       // Early reads to this computation will return this value (undefined). If that behavior is not desired,
       // the user should call .wait() on the computation to wait for the promise to resolve
@@ -126,7 +131,7 @@ export class Computation<T = any>
         .catch((e) => {
           // When the promise errors, we need to set an error state so that future reads of this
           // computation will re-throw the error (until a new value is written/recomputed)
-          if (this._promise === initialValue) this.setError(e);
+          if (this._promise === initialValue) this._setError(e);
         });
     } else {
       // If the initial value is not a promise, we just set it directly
@@ -135,28 +140,28 @@ export class Computation<T = any>
 
     // Used when debugging the graph; it is often helpful to know the names of sources/observers
     if (__DEV__)
-      this.name = options?.name ?? (this._compute ? "computed" : "signal");
+      this._name = options?.name ?? (this._compute ? "computed" : "signal");
 
     if (options && options.equals !== undefined) this._equals = options.equals;
   }
 
   read(): T {
-    if (this._compute) this.updateIfNecessary();
+    if (this._compute) this._updateIfNecessary();
 
     track(this);
 
-    if ((this._stateFlags & IS_LOADING) !== 0) newLoadingState = true;
+    if (this._isLoading()) newLoadingState = true;
 
     if (this._stateFlags & ERROR_BIT) throw this._value;
     return this._value!;
   }
 
   wait(): T {
-    if (this._compute) this.updateIfNecessary();
+    if (this._compute) this._updateIfNecessary();
 
     track(this);
 
-    if ((this._stateFlags & IS_LOADING) !== 0) {
+    if (this._isLoading()) {
       newLoadingState = true;
 
       throw new NotReadyError();
@@ -170,15 +175,16 @@ export class Computation<T = any>
     if (this._loading === null) {
       this._loading = new LoadingState(this);
     }
+    this._updateIfNecessary();
     track(this._loading);
-    return this.updateIfNecessary();
+    return this._isLoading();
   }
 
   error(): boolean {
     if (this._error === null) {
       this._error = new ErrorState(this);
     }
-    this.updateIfNecessary();
+    this._updateIfNecessary();
     track(this._error);
     return (this._stateFlags & ERROR_BIT) !== 0;
   }
@@ -186,76 +192,117 @@ export class Computation<T = any>
   write(value: T | Promise<T>): T {
     this._promise = null;
     if (isPromise(value)) {
+      // We are about to change the async state to true, and we want to notify _loading observers if the loading state changes
+      // Thus, we just need to check if the current state is not loading, then we are guaranteed to change
       if ((this._stateFlags & IS_LOADING) === 0) this._loading?.set(true);
-      this._stateFlags |= ASYNC_BIT;
+      this._stateFlags |= SELF_ASYNC_BIT;
       this._promise = value;
       value
         .then((v) => {
           if (this._promise === value) this.write(v);
         })
         .catch((e) => {
-          if (this._promise === value) this.setError(e);
+          if (this._promise === value) this._setError(e);
         });
     } else if (!this._equals || !this._equals(this._value!, value)) {
       this._value = value;
+
+      // We are about to change the async state to false, and we want to notify _loading observers if the loading state changes.
+      // If we are currently waiting on a source, then changing the loading state will not change the overall loading state.
+      // Otherwise, we need to notify _loading observers that the loading state has changed
       if ((this._stateFlags & WAITING_BIT) === 0) this._loading?.set(false);
-      this._stateFlags &= ~ASYNC_BIT;
+      this._stateFlags &= ~SELF_ASYNC_BIT;
+
+      // If we were in an error state, then our error state is changing and we need to notify _error observers
+      // that the error state has changed
       if ((this._stateFlags & ERROR_BIT) !== 0) this._error?.set();
       this._stateFlags &= ~ERROR_BIT;
+
+      // Our value has changed, so we need to notify all of our observers that the value has changed and so they must rerun
       if (this._observers) {
         for (let i = 0; i < this._observers.length; i++) {
-          this._observers[i].notify(STATE_DIRTY);
+          this._observers[i]._notify(STATE_DIRTY);
         }
       }
     }
 
+    // We return the value so that .write can be used in an expression (although it is not usually recommended)
     return this._value!;
   }
 
-  notify(state: number) {
+  _notify(state: number) {
     if (this._state >= state) return;
 
     this._state = state;
     if (this._observers) {
       for (let i = 0; i < this._observers.length; i++) {
-        this._observers[i].notify(STATE_CHECK);
+        this._observers[i]._notify(STATE_CHECK);
       }
     }
-    this._loading?.notify(STATE_CHECK);
-    this._error?.notify(STATE_CHECK);
+    this._loading?._notify(STATE_CHECK);
+    this._error?._notify(STATE_CHECK);
   }
 
-  setLoading(loading: boolean) {
-    if (loading !== ((this._stateFlags & ASYNC_BIT) !== 0)) {
+  _setWaiting(loading: boolean) {
+    // We are changing the self waiting bit
+    if (loading !== ((this._stateFlags & SELF_ASYNC_BIT) !== 0)) {
       this._loading?.set(loading);
     }
     this._stateFlags &= ~WAITING_BIT;
     if (loading) this._stateFlags |= WAITING_BIT;
   }
 
-  setError(error: unknown) {
+  _setError(error: unknown) {
     if ((this._stateFlags & ERROR_BIT) === 0) this._error?.set();
     this._value = error as T;
     this._stateFlags |= ERROR_BIT;
   }
 
+  _isLoading(): boolean {
+    return (this._stateFlags & IS_LOADING) !== 0;
+  }
+
   // This is the core part of the reactivity system, which makes sure that values that we read are
   // always up to date. We've also adapted it to return the loading state of the computation, so that
   // we can propagate that to the computation's observers.
-  updateIfNecessary(): boolean {
+  //
+  // This function will ensure that the value and states we read from the computation are up to date
+  _updateIfNecessary() {
+    // If the user tries to read a computation that has been disposed, we throw an error, because
+    // they probably kept a reference to it as the parent reran, so there is likely a new computation
+    // with the same _compute function that they should be reading instead.
     if (this._state === STATE_DISPOSED) {
       throw new Error("Tried to read a disposed computation");
     }
 
+    // If the computation is already clean, none of our sources have changed, so we know that
+    // our value and stateFlags are up to date, and we can just return.
     if (this._state === STATE_CLEAN) {
-      return (this._stateFlags & IS_LOADING) !== 0;
+      return;
     }
 
-    let anyLoading = false;
+    // Otherwise, one of our parent's value may have changed, or one of our parent's loading state
+    // may have been set to no longer loading. In either case, what we need to do is make sure our
+    // parents all have up to date values and loading states, and then update our own value and loading state
+
+    // We keep track of whether any of our sources have changed loading state, so that we can update our own loading state
+    // This is only necessary if none of them change value, because update() will also cause us to recompute our loading state
+    let isWaiting = false;
+
+    // If we're in state_check, then that means one of our grandparent sources may have changed value or loading state,
+    // so we need to recursively call _updateIfNecessary to update the state of all of our sources, and then update our value and loading state.
     if (this._state === STATE_CHECK) {
       for (let i = 0; i < this._sources!.length; i++) {
-        const isLoading = this._sources![i].updateIfNecessary();
-        if (isLoading) anyLoading = true;
+        // Make sure the parent is up to date. If it changed value, then it will mark us as STATE_DIRTY, and we will know to rerun
+        this._sources![i]._updateIfNecessary();
+
+        // If the parent is loading, then we are waiting
+        if (this._sources![i]._isLoading()) {
+          isWaiting = true;
+        }
+
+        // If the parent changed value, it will mark us as STATE_DIRTY and we need to call update()
+        // We cast because typescript doesn't know that the _updateIfNecessary call above can change our state
         if ((this._state as number) === STATE_DIRTY) {
           // Stop the loop here so we won't trigger updates on other parents unnecessarily
           // If our computation changes to no longer use some sources, we don't
@@ -265,21 +312,28 @@ export class Computation<T = any>
       }
     }
 
-    if (this._state === STATE_DIRTY) update(this);
-    else {
-      this.setLoading(anyLoading);
+    if (this._state === STATE_DIRTY) {
+      update(this);
+    } else {
+      // We have checked all our parents and none of them changed value, so we know that our value is up to date
+      // That means that anyLoading correctly represents whether we are waiting on anything (waiting state)
+      this._setWaiting(isWaiting);
 
+      // None of our parents changed value, so our value is up to date (STATE_CLEAN)
       this._state = STATE_CLEAN;
     }
-
-    return (this._stateFlags & IS_LOADING) !== 0;
   }
 
-  disposeNode() {
+  // If we are a child of an owner that has been disposed or computation that has rerun, then we need to remove ourselves from the graph
+  _disposeNode() {
+    if (this._state === STATE_DISPOSED) return;
+
+    // Unlink ourselves from our sources' observers array so that we can be garbage collected
+    // This removes us from the computation graph
     if (this._sources) removeSourceObservers(this, 0);
-    this._sources = null;
-    this._observers = null;
-    super.disposeNode();
+
+    // Remove ourselves from the ownership tree as well
+    super._disposeNode();
   }
 }
 
@@ -297,26 +351,31 @@ class LoadingState<T = any> implements SourceType {
     this._observers = null;
   }
 
-  updateIfNecessary(): boolean {
-    return this._origin.updateIfNecessary();
+  _updateIfNecessary(): void {
+    this._origin._updateIfNecessary();
+  }
+
+  _isLoading(): boolean {
+    return this._origin._isLoading();
   }
 
   set(value: boolean) {
     if (this._origin._observers) {
       for (let i = 0; i < this._origin._observers.length; i++) {
         if (value) {
-          this._origin._observers[i].setLoading(true);
+          this._origin._observers[i]._setWaiting(true);
         } else {
-          this._origin._observers[i].notify(STATE_CHECK);
+          this._origin._observers[i]._notify(STATE_CHECK);
         }
       }
     }
-    this.notify(STATE_DIRTY);
+    this._notify(STATE_DIRTY);
   }
-  notify(state: number) {
+
+  _notify(state: number) {
     if (this._observers) {
       for (let i = 0; i < this._observers.length; i++) {
-        this._observers[i].notify(state);
+        this._observers[i]._notify(state);
       }
     }
   }
@@ -331,18 +390,22 @@ class ErrorState<T> implements SourceType {
     this._observers = null;
   }
 
-  updateIfNecessary(): boolean {
-    return this._origin.updateIfNecessary();
+  _updateIfNecessary(): void {
+    this._origin._updateIfNecessary();
+  }
+
+  _isLoading(): boolean {
+    return this._origin._isLoading();
   }
 
   set() {
-    this.notify(STATE_DIRTY);
+    this._notify(STATE_DIRTY);
   }
 
-  notify(state: number) {
+  _notify(state: number) {
     if (this._observers) {
       for (let i = 0; i < this._observers.length; i++) {
-        this._observers[i].notify(state);
+        this._observers[i]._notify(state);
       }
     }
   }
@@ -427,9 +490,9 @@ export function update<T>(node: Computation<T>) {
       node._sources.length = newSourcesIndex;
     }
 
-    node.setLoading(newLoadingState);
+    node._setWaiting(newLoadingState);
   } catch (error) {
-    node.setError(error);
+    node._setError(error);
 
     return;
   }
