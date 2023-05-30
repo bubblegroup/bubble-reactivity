@@ -141,8 +141,6 @@ export class Computation<T = any>
   }
 
   read(): T {
-    if (this._state === STATE_DISPOSED) return this._value!;
-
     if (this._compute) this.updateIfNecessary();
 
     track(this);
@@ -154,8 +152,6 @@ export class Computation<T = any>
   }
 
   wait(): T {
-    if (this._state === STATE_DISPOSED) return this._value!;
-
     if (this._compute) this.updateIfNecessary();
 
     track(this);
@@ -247,6 +243,10 @@ export class Computation<T = any>
   // always up to date. We've also adapted it to return the loading state of the computation, so that
   // we can propagate that to the computation's observers.
   updateIfNecessary(): boolean {
+    if (this._state === STATE_DISPOSED) {
+      throw new Error("Tried to read a disposed computation");
+    }
+
     if (this._state === STATE_CLEAN) {
       return (this._stateFlags & IS_LOADING) !== 0;
     }

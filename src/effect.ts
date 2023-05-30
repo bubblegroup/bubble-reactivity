@@ -1,5 +1,5 @@
 import { Computation, type MemoOptions } from "./core";
-import { STATE_CLEAN } from "./constants";
+import { STATE_CLEAN, STATE_DISPOSED } from "./constants";
 import { handleError } from "./owner";
 
 let scheduledEffects = false;
@@ -32,7 +32,8 @@ function runTop(node: Computation) {
     }
   }
   for (let i = ancestors.length - 1; i >= 0; i--) {
-    ancestors[i].updateIfNecessary();
+    if (ancestors[i]._state !== STATE_DISPOSED)
+      ancestors[i].updateIfNecessary();
   }
 }
 
