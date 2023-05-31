@@ -52,19 +52,15 @@ export function getOwner(): Owner | null {
 }
 
 export class Owner {
-  _parent: Owner | null;
-  _nextSibling: Owner | null;
-  _prevSibling: Owner | null;
+  _parent: Owner | null = null;
+  _nextSibling: Owner | null = null;
+  _prevSibling: Owner | null = null;
   _state: number = STATE_CLEAN;
 
   _disposal: Disposable | Disposable[] | null = null;
   _context: null | ContextRecord = null;
-  _compute: null | unknown = null;
 
   constructor(signal = false) {
-    this._parent = null;
-    this._nextSibling = null;
-    this._prevSibling = null;
     if (currentOwner && !signal) currentOwner.append(this);
   }
 
