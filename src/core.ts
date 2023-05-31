@@ -458,7 +458,11 @@ function track(computation: SourceType) {
     ) {
       newSourcesIndex++;
     } else if (!newSources) newSources = [computation];
-    else newSources.push(computation);
+    else if (computation !== newSources[newSources.length - 1]) {
+      // If the computation is the same as the last source we read, we don't need to add it to newSources
+      // https://github.com/solidjs/solid/issues/46#issuecomment-515717924
+      newSources.push(computation);
+    }
   }
 }
 
