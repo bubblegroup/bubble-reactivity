@@ -20,7 +20,7 @@ function flushEffects() {
 }
 
 /**
- * When reexecuting nodes, we want to be extra careful to avoid double execution of nested owners
+ * When re-executing nodes, we want to be extra careful to avoid double execution of nested owners
  * In particular, it is important that we check all of our parents to see if they will rerun
  * See tests/createEffect: "should run parent effect before child effect" and "should run parent memo before child effect"
  */
@@ -60,7 +60,7 @@ function runEffects() {
 
 /**
  * Effects are the leaf nodes of our reactive graph. When their sources change, they are automatically
- * added to the queue of effects to reexecute, which will cause them to fetch their sources and recompute
+ * added to the queue of effects to re-execute, which will cause them to fetch their sources and recompute
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export class Effect<T = any> extends Computation<T> {

@@ -1,24 +1,24 @@
 /**
- * Nodes for constructing a reactive graph of reactive values and reactive computations.
+ * Nodes for constructing a graph of reactive values and reactive computations.
  * The graph is acyclic.
- * The user inputs new values into the graph by calling .write() on one more more reactive nodes.
+ * The user inputs new values into the graph by calling .write() on one more computation nodes.
  * The user retrieves computed results from the graph by calling .read() on one or more computation nodes.
  * The library is responsible for running any necessary computations so that .read() is
  * up to date with all prior .write() calls anywhere in the graph.
  *
- * We call input nodes 'roots' and the output nodes 'leaves' of the graph here in discussion.
+ * We call the input nodes 'roots' and the output nodes 'leaves' of the graph here.
  * Changes flow from roots to leaves. It would be effective but inefficient to immediately propagate
- * all changes from a root through the graph to descendant leaves. Instead we defer change
- * most change progogation computation until a leaf is accessed. This allows us to coalesce computations
+ * all changes from a root through the graph to descendant leaves. Instead, we defer change
+ * most change propagation computation until a leaf is accessed. This allows us to coalesce computations
  * and skip altogether recalculating unused sections of the graph.
  *
  * Each computation node tracks its sources and its observers (observers are other
  * elements that have this node as a source). Source and observer links are updated automatically
  * as observer computations re-evaluate and call get() on their sources.
  *
- * Each node stores a cache state to support the change propogation algorithm: 'clean', 'check', or 'dirty'
+ * Each node stores a cache state to support the change propagation algorithm: 'clean', 'check', or 'dirty'
  * In general, execution proceeds in three passes:
- *  1. write() propogates changes down the graph to the leaves
+ *  1. write() propagates changes down the graph to the leaves
  *     direct children are marked as dirty and their deeper descendants marked as check
  *     (no computations are evaluated)
  *  2. read() requests that parent nodes updateIfNecessary(), which proceeds recursively up the tree
@@ -90,11 +90,12 @@ export class Computation<T = any>
   // One alternative would be to define _equals on Owner, but benchmarking hasn't shown a substantial impact
   _equals: false | ((a: T, b: T) => boolean) = isEqual;
 
-  // 1=value was thrown, 2=waiting on a source that is loading, 4=value is a promise
+  /** 1=value was thrown, 2=waiting on a source that is loading, 4=value is a promise */
   _stateFlags = 0;
   _error: ErrorState<T> | null = null;
-  _promise: Promise<T> | null = null;
   _loading: LoadingState<T> | null = null;
+  /** current pending promise */
+  _promise: Promise<T> | null = null;
 
   constructor(
     initialValue: T | Promise<T> | undefined,
@@ -172,8 +173,11 @@ export class Computation<T = any>
     return this._read(true);
   }
 
-  // Subscribe to the loading state of this computation
-  // This is useful especially when effects want to trigger when a computation changes loading states
+  /**
+   * Return true if the computation is the value is dependent on an unresolved promise
+   * Triggers re-execution of the computation when the loading state changes
+   * This is useful especially when effects want to trigger when a computation changes loading states
+   */
   loading(): boolean {
     if (this._loading === null) {
       this._loading = new LoadingState(this);
@@ -183,7 +187,10 @@ export class Computation<T = any>
     return this._isLoading();
   }
 
-  // Subscribe to the error state of this computation
+  /**
+   * Return true if the computation is the computation threw an error
+   * Triggers re-execution of the computation when the error state changes
+   */
   error(): boolean {
     if (this._error === null) {
       this._error = new ErrorState(this);
@@ -193,7 +200,7 @@ export class Computation<T = any>
     return (this._stateFlags & ERROR_BIT) !== 0;
   }
 
-  // Update the computation and its state with a new value or promise
+  /** Update the computation with a new value or promise */
   write(value: T | Promise<T>): T {
     if (isPromise(value)) {
       // Update the latest promise, that way any old promises that resolve will be ignored
@@ -241,6 +248,7 @@ export class Computation<T = any>
     return this._value!;
   }
 
+  /** Set the current node's state, and recursively mark all of this node's observers as STATE_CHECK */
   _notify(state: number) {
     if (this._state >= state) return;
 
@@ -255,7 +263,7 @@ export class Computation<T = any>
     this._error?._notify(STATE_CHECK);
   }
 
-  // We are changing the self waiting bit
+  /** We are changing the self waiting bit */
   _setIsWaiting(waiting: boolean) {
     // Check if changing the waiting state will change the overall loading state
     // If it will, then we need to notify _loading observers that the loading state has changed
@@ -263,7 +271,7 @@ export class Computation<T = any>
       this._loading?.set(waiting);
     }
 
-    // Update the waiting bit by clearing it and then setting it `waiting` is true
+    // Update the waiting bit by clearing it and then setting it if `waiting` is true
     this._stateFlags &= ~WAITING_BIT;
     if (waiting) this._stateFlags |= WAITING_BIT;
   }
@@ -279,11 +287,13 @@ export class Computation<T = any>
     this._value = error as T;
   }
 
-  // This is the core part of the reactivity system, which makes sure that values that we read are
-  // always up to date. We've also adapted it to return the loading state of the computation, so that
-  // we can propagate that to the computation's observers.
-  //
-  // This function will ensure that the value and states we read from the computation are up to date
+  /**
+   * This is the core part of the reactivity system, which makes sure that the values that we read are
+   * always up to date. We've also adapted it to return the loading state of the computation, so that
+   * we can propagate that to the computation's observers.
+   *
+   * This function will ensure that the value and states we read from the computation are up to date
+   */
   _updateIfNecessary() {
     // If the user tries to read a computation that has been disposed, we throw an error, because
     // they probably kept a reference to it as the parent reran, so there is likely a new computation
@@ -298,12 +308,12 @@ export class Computation<T = any>
       return;
     }
 
-    // Otherwise, one of our parent's value may have changed, or one of our parent's loading state
+    // Otherwise, our sources' values may have changed, or one of our sources' loading states
     // may have been set to no longer loading. In either case, what we need to do is make sure our
-    // parents all have up to date values and loading states, and then update our own value and loading state
+    // sources all have up to date values and loading states and then update our own value and loading state
 
-    // We keep track of whether any of our sources have changed loading state, so that we can update our own loading state
-    // This is only necessary if none of them change value, because update() will also cause us to recompute our loading state
+    // We keep track of whether any of our sources have changed loading state so that we can update our loading state
+    // This is only necessary if none of them change value because update() will also cause us to recompute our loading state
     let isWaiting = false;
 
     // If we're in state_check, then that means one of our grandparent sources may have changed value or loading state,
@@ -333,7 +343,7 @@ export class Computation<T = any>
       update(this);
     } else {
       // We have checked all our parents and none of them changed value, so we know that our value is up to date
-      // That means that anyLoading correctly represents whether we are waiting on anything (waiting state)
+      // That means that isWaiting correctly represents whether we are waiting on anything (waiting state)
       this._setIsWaiting(isWaiting);
 
       // None of our parents changed value, so our value is up to date (STATE_CLEAN)
@@ -341,12 +351,12 @@ export class Computation<T = any>
     }
   }
 
-  // Needed so that we can read whether _sources are loading in _updateIfNecessary
+  /** Needed so that we can read whether _sources are loading in _updateIfNecessary */
   _isLoading(): boolean {
     return (this._stateFlags & IS_LOADING) !== 0;
   }
 
-  // If we are a child of an owner that has been disposed or computation that has rerun, then we need to remove ourselves from the graph
+  /** If we are a child of a computation that has been rerun then we need to remove ourselves from the graph */
   _disposeNode() {
     if (this._state === STATE_DISPOSED) return;
 
@@ -373,18 +383,18 @@ class LoadingState<T = any> implements SourceType {
     this._observers = null;
   }
 
-  // When a computation reads a signal, they are really reading the bitflags on _origin
-  // To make sure those are up to date, we call _updateIfNecessary on _origin
   _updateIfNecessary(): void {
+    // When a computation reads .loading() and subscribes to LoadingState, they are reading the bitflags on _origin
+    // To make sure those are up to date, we call _updateIfNecessary on _origin
     this._origin._updateIfNecessary();
   }
 
-  // Similarly, the value is loading if _origin is loading
   _isLoading(): boolean {
+    // The value is loading if _origin is loading
     return this._origin._isLoading();
   }
 
-  // Notify observers and downstream computation states that the loading state has changed
+  /** Notify observers and downstream computation states that the loading state has changed */
   set(value: boolean) {
     if (this._origin._observers) {
       for (let i = 0; i < this._origin._observers.length; i++) {
@@ -400,7 +410,7 @@ class LoadingState<T = any> implements SourceType {
     this._notify(STATE_DIRTY);
   }
 
-  // Notify effects that observe this loading state directly that it has updated (or might have updated).
+  /** Notify effects that observe this loading state directly that it has updated (or might have updated). */
   _notify(state: number) {
     if (this._observers) {
       for (let i = 0; i < this._observers.length; i++) {
@@ -427,6 +437,7 @@ class ErrorState<T> implements SourceType {
     return this._origin._isLoading();
   }
 
+  /** Notify downstream computation states that the error state has changed */
   _notify(state: number) {
     if (this._observers) {
       for (let i = 0; i < this._observers.length; i++) {
@@ -437,7 +448,7 @@ class ErrorState<T> implements SourceType {
 }
 
 /**
- * Instead of wiping the sources immediately on reevaluation, we instead compare them to the new sources
+ * Instead of wiping the sources immediately on `update`, we compare them to the new sources
  * by checking if the source we want to add is the same as the old source at the same index.
  *
  * This way when the sources don't change, we are just doing a fast comparison:
@@ -486,8 +497,8 @@ export function update<T>(node: Computation<T>) {
     node.dispose(false);
     if (node._disposal) node.emptyDisposal();
 
-    // Rerun the node's _compute function, setting node as owner and listener so that any signals read are added to node's sources
-    // and any computations created are disposed if node is rerun
+    // Rerun the node's _compute function, setting node as owner and listener so that any computations read are added to node's sources
+    // and any computations are automatically disposed if `node` is rerun
     const result = compute(node, node._compute!, node);
 
     // Update the node's value (if the function returns a promise, write will handle that automatically)

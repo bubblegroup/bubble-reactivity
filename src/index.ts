@@ -26,7 +26,7 @@ export function createSignal<T>(
 }
 
 /**
- * Creates a new signal whose value is computed and returned by the given function. The given
+ * Creates a new computation whose value is computed and returned by the given function. The given
  * compute function is _only_ re-run when one of it's dependencies are updated. Dependencies are
  * are all signals that are read during execution.
  */
