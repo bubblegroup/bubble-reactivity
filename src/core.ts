@@ -67,11 +67,10 @@ let newSources: SourceType[] | null = null;
 let newSourcesIndex = 0;
 let newLoadingState = false;
 
+/** Computation threw a value during execution */
 const ERROR_BIT = 1;
+/** Computation's ancestors have a unresolved promise */
 const WAITING_BIT = 2;
-const SELF_ASYNC_BIT = 4;
-
-const IS_LOADING = SELF_ASYNC_BIT | WAITING_BIT;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export class Computation<T = any>
@@ -90,7 +89,7 @@ export class Computation<T = any>
   // One alternative would be to define _equals on Owner, but benchmarking hasn't shown a substantial impact
   _equals: false | ((a: T, b: T) => boolean) = isEqual;
 
-  /** 1=value was thrown, 2=waiting on a source that is loading, 4=value is a promise */
+  /** Whether the computation is an error or has ancestors that are unresolved */
   _stateFlags = 0;
   _error: ErrorState<T> | null = null;
   _loading: LoadingState<T> | null = null;
@@ -113,8 +112,6 @@ export class Computation<T = any>
 
     // If the initial value passed in is a promise, we need to track it
     if (isPromise(initialValue)) {
-      this._stateFlags |= SELF_ASYNC_BIT;
-
       // Early reads to this computation will return this value (undefined). If that behavior is not desired,
       // the user should call .wait() on the computation to wait for the promise to resolve
       this._value = undefined;
@@ -149,7 +146,8 @@ export class Computation<T = any>
   _read(shouldThrow: boolean): T {
     if (this._compute) this._updateIfNecessary();
 
-    // When we read the current value, we want to subscribe to it
+    // When the currentObserver reads this._value, the want to add this computation as a source
+    // so that when this._value changes, the currentObserver will be re-executed
     track(this);
 
     if (this._isLoading()) {
@@ -157,7 +155,7 @@ export class Computation<T = any>
 
       // If we want to wait for the value to resolve, we throw a NotReadyError which will be caught
       // That way user's computations never see stale or undefined values.
-      // This is similar to how React works: https://twitter.com/sebmarkbage/status/941214259505119232
+      // (This is similar to how React works: https://twitter.com/sebmarkbage/status/941214259505119232)
       if (shouldThrow) throw new NotReadyError();
     }
 
@@ -165,10 +163,22 @@ export class Computation<T = any>
     return this._value!;
   }
 
+  /**
+   * Return the current value of this computation
+   * Automatically re-executes the surrounding computation when the value changes
+   *
+   * If the computation is currently a pending promise, this will return the previous/inital value
+   */
   read(): T {
     return this._read(false);
   }
 
+  /**
+   * Return the current value of this computation
+   * Automatically re-executes the surrounding computation when the value changes
+   *
+   * If the computation has any unresolved ancestors, waits for the value to resolve before continuing
+   */
   wait(): T {
     return this._read(true);
   }
@@ -203,13 +213,12 @@ export class Computation<T = any>
   /** Update the computation with a new value or promise */
   write(value: T | Promise<T>): T {
     if (isPromise(value)) {
-      // Update the latest promise, that way any old promises that resolve will be ignored
-      this._promise = value;
-
       // We are about to change the async state to true, and we want to notify _loading observers if the loading state changes
       // Thus, we just need to check if the current state is not loading, then we are guaranteed to change
-      if ((this._stateFlags & IS_LOADING) === 0) this._loading?.set(true);
-      this._stateFlags |= SELF_ASYNC_BIT;
+      if (!this._isLoading()) this._loading?.set(true);
+
+      // Update the latest promise, that way any old promises that resolve will be ignored
+      this._promise = value;
 
       // When the promise resolves, we need to update our value (or error if the promise rejects)
       value
@@ -221,13 +230,12 @@ export class Computation<T = any>
         });
     } else if (!this._equals || !this._equals(this._value!, value)) {
       this._value = value;
-      this._promise = null;
 
       // We are about to change the async state to false, and we want to notify _loading observers if the loading state changes.
       // If we are currently waiting on a source, then changing the loading state will not change the overall loading state.
       // Otherwise, we need to notify _loading observers that the loading state has changed
       if ((this._stateFlags & WAITING_BIT) === 0) this._loading?.set(false);
-      this._stateFlags &= ~SELF_ASYNC_BIT;
+      this._promise = null;
 
       // If we were in an error state, then our error state is changing and we need to notify _error observers
       // that the error state has changed
@@ -250,6 +258,9 @@ export class Computation<T = any>
 
   /** Set the current node's state, and recursively mark all of this node's observers as STATE_CHECK */
   _notify(state: number) {
+    // If the state is already STATE_DIRTY and we are trying to set it to STATE_CHECK, then we don't need to do anything
+    // Similarly, if the state is already STATE_CHECK and we are trying to set it to STATE_CHECK,
+    // then we don't need to do anything because a previous _notify call has already set this state and all observers as STATE_CHECK
     if (this._state >= state) return;
 
     this._state = state;
@@ -267,9 +278,8 @@ export class Computation<T = any>
   _setIsWaiting(waiting: boolean) {
     // Check if changing the waiting state will change the overall loading state
     // If it will, then we need to notify _loading observers that the loading state has changed
-    if (waiting !== ((this._stateFlags & SELF_ASYNC_BIT) !== 0)) {
-      this._loading?.set(waiting);
-    }
+    const isSelfPending = this._promise !== null;
+    if (waiting !== isSelfPending) this._loading?.set(waiting);
 
     // Update the waiting bit by clearing it and then setting it if `waiting` is true
     this._stateFlags &= ~WAITING_BIT;
@@ -353,7 +363,7 @@ export class Computation<T = any>
 
   /** Needed so that we can read whether _sources are loading in _updateIfNecessary */
   _isLoading(): boolean {
-    return (this._stateFlags & IS_LOADING) !== 0;
+    return (this._stateFlags & WAITING_BIT) !== 0 || this._promise !== null;
   }
 
   /** If we are a child of a computation that has been rerun then we need to remove ourselves from the graph */
