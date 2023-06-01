@@ -287,14 +287,16 @@ export class Computation<T = any>
     this._error?._notify(STATE_CHECK);
   }
 
-  /** We are changing the self waiting bit */
+  /**
+   * Change the waiting state of the computation, notifying observers if the computation switches
+   * to or from a loading state
+   */
   _setIsWaiting(waiting: boolean) {
     // Check if changing the waiting state will change the overall loading state
     // If it will, then we need to notify _loading observers that the loading state has changed
     const isSelfPending = this._promise !== null;
     if (waiting !== isSelfPending) this._loading?.set(waiting);
 
-    // Update the waiting bit by clearing it and then setting it if `waiting` is true
     this._stateFlags &= ~WAITING_BIT;
     if (waiting) this._stateFlags |= WAITING_BIT;
   }
@@ -307,13 +309,14 @@ export class Computation<T = any>
     }
 
     // Store the error value in _value
+    // this is an optimization to avoid having an extra field because we know _value is not used
     this._value = error as T;
   }
 
   /**
-   * This is the core part of the reactivity system, which makes sure that the values that we read are
-   * always up to date. We've also adapted it to return the loading state of the computation, so that
-   * we can propagate that to the computation's observers.
+   * This is the core part of the reactivity system, which makes sure that the values are updated
+   * before they are read. We've also adapted it to return the loading state of the computation,
+   * so that we can propagate that to the computation's observers.
    *
    * This function will ensure that the value and states we read from the computation are up to date
    */
@@ -341,9 +344,9 @@ export class Computation<T = any>
     // also cause us to recompute our loading state.
     let isWaiting = false;
 
-    // If we're in state_check, then that means one of our grandparent sources may have changed
-    // value or loading state, so we need to recursively call _updateIfNecessary to update the state
-    // of all of our sources, and then update our value and loading state.
+    // STATE_CHECK means one of our grandparent sources may have changed value or loading state,
+    // so we need to recursively call _updateIfNecessary to update the state of all of our sources
+    // and then update our value and loading state.
     if (this._state === STATE_CHECK) {
       for (let i = 0; i < this._sources!.length; i++) {
         // Make sure the parent is up to date. If it changed value, then it will mark us as
@@ -414,7 +417,8 @@ class LoadingState<T = any> implements SourceType {
 
   _updateIfNecessary(): void {
     // When a computation reads .loading() and tracks this LoadingState, they read _origin.isLoading
-    // To make sure that is up to date, we call _updateIfNecessary on _origin
+    // The reading computation node  will track this LoadingState instance as they would track any
+    // other computation. To make sure that _origin.isLoading up to date, we call _updateIfNecessary
     this._origin._updateIfNecessary();
   }
 
@@ -510,7 +514,7 @@ function track(computation: SourceType) {
  *
  * It handles the updating of sources and observers, disposal of previous executions,
  * and error handling if the _compute function throws. It also sets the node as loading
- * if it read any parents that are currently loading.
+ * if it reads any parents that are currently loading.
  */
 export function update<T>(node: Computation<T>) {
   const prevSources = newSources;
