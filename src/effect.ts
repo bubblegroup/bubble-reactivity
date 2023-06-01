@@ -1,8 +1,7 @@
-import { Computation, type MemoOptions } from "./core";
+import { Computation, hooks, type MemoOptions } from "./core";
 import { STATE_CLEAN, STATE_DISPOSED } from "./constants";
 import { handleError } from "./owner";
 
-let scheduledEffects = false;
 let runningEffects = false;
 let effects: Effect[] = [];
 
@@ -12,11 +11,6 @@ let effects: Effect[] = [];
  */
 export function flushSync(): void {
   if (!runningEffects) runEffects();
-}
-
-function flushEffects() {
-  scheduledEffects = true;
-  queueMicrotask(runEffects);
 }
 
 /**
@@ -39,7 +33,6 @@ function runTop(node: Computation) {
 
 function runEffects() {
   if (!effects.length) {
-    scheduledEffects = false;
     return;
   }
 
@@ -53,10 +46,11 @@ function runEffects() {
     }
   } finally {
     effects = [];
-    scheduledEffects = false;
     runningEffects = false;
   }
 }
+
+hooks.signalWritten = flushSync;
 
 /**
  * Effects are the leaf nodes of our reactive graph. When their sources change, they are automatically
@@ -73,7 +67,6 @@ export class Effect<T = any> extends Computation<T> {
 
     if (this._state === STATE_CLEAN) {
       effects.push(this);
-      if (!scheduledEffects) flushEffects();
     }
 
     this._state = state;

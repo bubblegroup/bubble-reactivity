@@ -68,6 +68,12 @@ let newSources: SourceType[] | null = null;
 let newSourcesIndex = 0;
 let newLoadingState = false;
 
+export const hooks = {
+  signalWritten: () => {
+    // Noop, to be replaced
+  }
+}
+
 /** Computation threw a value during execution */
 const ERROR_BIT = 1;
 /** Computation's ancestors have a unresolved promise */
@@ -259,6 +265,10 @@ export class Computation<T = any>
           this._observers[i]._notify(STATE_DIRTY);
         }
       }
+    }
+
+    if (!this._sources) {
+      hooks.signalWritten();
     }
 
     // We return the value so that .write can be used in an expression
