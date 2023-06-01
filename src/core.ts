@@ -9,14 +9,14 @@
  * We call the input nodes 'roots' and the output nodes 'leaves' of the graph here.
  * Changes flow from roots to leaves. It would be effective but inefficient to immediately propagate
  * all changes from a root through the graph to descendant leaves. Instead, we defer change
- * most change propagation computation until a leaf is accessed. This allows us to coalesce computations
- * and skip altogether recalculating unused sections of the graph.
+ * most change propagation computation until a leaf is accessed. This allows us to coalesce
+ * computations and skip altogether recalculating unused sections of the graph.
  *
  * Each computation node tracks its sources and its observers (observers are other
  * elements that have this node as a source). Source and observer links are updated automatically
  * as observer computations re-evaluate and call get() on their sources.
  *
- * Each node stores a cache state to support the change propagation algorithm: 'clean', 'check', or 'dirty'
+ * Each node stores a cache state (clean/check/dirty) to support the change propagation algorithm:
  * In general, execution proceeds in three passes:
  *  1. write() propagates changes down the graph to the leaves
  *     direct children are marked as dirty and their deeper descendants marked as check
@@ -57,7 +57,8 @@ interface ObserverType {
   _sources: SourceType[] | null;
   _notify(state: number): void;
 
-  // Needed to eagerly tell observers that their sources are currently loading (and thus they are too)
+  // Needed to eagerly tell observers that their sources are currently loading
+  // (and thus they are too)
   _setIsWaiting(loading: boolean): void;
 }
 
@@ -85,8 +86,8 @@ export class Computation<T = any>
   // Used in __DEV__ mode, hopefully removed in production
   _name: string | undefined;
 
-  // Ideally we would set this default value on the prototype directly, but doing that in typescript causes issues
-  // One alternative would be to define _equals on Owner, but benchmarking hasn't shown a substantial impact
+  // Ideally we would set this default value on the prototype directly, but doing that
+  // in typescript causes issues.
   _equals: false | ((a: T, b: T) => boolean) = isEqual;
 
   /** Whether the computation is an error or has ancestors that are unresolved */
@@ -103,7 +104,7 @@ export class Computation<T = any>
   ) {
     // Initialize self as a node in the Owner tree, for tracking cleanups.
     // If we aren't passed a compute function, we don't need to track nested computations
-    // because there is no way to create a nested computation (which would add an element to the owner tree)
+    // because there is no way to create a nested computation (a child to the owner tree)
     super(compute === null);
 
     this._compute = compute;
@@ -112,8 +113,9 @@ export class Computation<T = any>
 
     // If the initial value passed in is a promise, we need to track it
     if (isPromise(initialValue)) {
-      // Early reads to this computation will return this value (undefined). If that behavior is not desired,
-      // the user should call .wait() on the computation to wait for the promise to resolve
+      // Early reads to this computation will return this value (undefined).
+      // If that behavior is not desired, the user should call .wait() on the computation
+      // to wait for the promise to resolve
       this._value = undefined;
 
       // Keep track of the latest promise, that way if a new promise is written
@@ -123,7 +125,8 @@ export class Computation<T = any>
       // When the promise resolves, we need to update our value
       initialValue
         .then((value) => {
-          // Writing a new value (that is not a promise) will automatically update the state to "no longer loading"
+          // Writing a new value (that is not a promise) will automatically
+          // update the state to "no longer loading"
           if (this._promise === initialValue) this.write(value);
         })
         .catch((e) => {
@@ -155,7 +158,7 @@ export class Computation<T = any>
 
       // If we want to wait for the value to resolve, we throw a NotReadyError which will be caught
       // That way user's computations never see stale or undefined values.
-      // (This is similar to how React works: https://twitter.com/sebmarkbage/status/941214259505119232)
+      // (cf. React: https://twitter.com/sebmarkbage/status/941214259505119232)
       if (shouldThrow) throw new NotReadyError();
     }
 
@@ -177,7 +180,8 @@ export class Computation<T = any>
    * Return the current value of this computation
    * Automatically re-executes the surrounding computation when the value changes
    *
-   * If the computation has any unresolved ancestors, waits for the value to resolve before continuing
+   * If the computation has any unresolved ancestors, this function waits for the value to resolve
+   * before continuing
    */
   wait(): T {
     return this._read(true);
@@ -186,7 +190,9 @@ export class Computation<T = any>
   /**
    * Return true if the computation is the value is dependent on an unresolved promise
    * Triggers re-execution of the computation when the loading state changes
-   * This is useful especially when effects want to trigger when a computation changes loading states
+   *
+   * This is useful especially when effects want to re-execute when a computation's
+   * loading state changes
    */
   loading(): boolean {
     if (this._loading === null) {
@@ -213,8 +219,9 @@ export class Computation<T = any>
   /** Update the computation with a new value or promise */
   write(value: T | Promise<T>): T {
     if (isPromise(value)) {
-      // We are about to change the async state to true, and we want to notify _loading observers if the loading state changes
-      // Thus, we just need to check if the current state is not loading, then we are guaranteed to change
+      // We are about to change the async state to true, and we want to notify _loading observers
+      // if the loading state changes. Thus, we just need to check if the current state is not
+      // loading, then we are guaranteed to change
       if (!this._isLoading()) this._loading?.set(true);
 
       // Update the latest promise, that way any old promises that resolve will be ignored
@@ -231,20 +238,22 @@ export class Computation<T = any>
     } else if (!this._equals || !this._equals(this._value!, value)) {
       this._value = value;
 
-      // We are about to change the async state to false, and we want to notify _loading observers if the loading state changes.
-      // If we are currently waiting on a source, then changing the loading state will not change the overall loading state.
-      // Otherwise, we need to notify _loading observers that the loading state has changed
+      // We are about to change the async state to false, and we want to notify _loading observers
+      // if the loading state changes. If an ancestor is already unresolved then us becoming
+      // unresolved will not change the overall loading state. Otherwise, we need to
+      // notify _loading observers that the loading state has changed
       if ((this._stateFlags & WAITING_BIT) === 0) this._loading?.set(false);
       this._promise = null;
 
-      // If we were in an error state, then our error state is changing and we need to notify _error observers
-      // that the error state has changed
+      // If we were in an error state, then our error state is changing and we need to notify
+      // _error observers that the error state has changed
       if ((this._stateFlags & ERROR_BIT) !== 0) {
         this._error?._notify(STATE_DIRTY);
         this._stateFlags &= ~ERROR_BIT;
       }
 
-      // Our value has changed, so we need to notify all of our observers that the value has changed and so they must rerun
+      // Our value has changed, so we need to notify all of our observers that the value has
+      // changed and so they must rerun
       if (this._observers) {
         for (let i = 0; i < this._observers.length; i++) {
           this._observers[i]._notify(STATE_DIRTY);
@@ -252,15 +261,19 @@ export class Computation<T = any>
       }
     }
 
-    // We return the value so that .write can be used in an expression (although it is not usually recommended)
+    // We return the value so that .write can be used in an expression
+    // (although it is not usually recommended)
     return this._value!;
   }
 
-  /** Set the current node's state, and recursively mark all of this node's observers as STATE_CHECK */
+  /**
+   * Set the current node's state, and recursively mark all of this node's observers as STATE_CHECK
+   */
   _notify(state: number) {
-    // If the state is already STATE_DIRTY and we are trying to set it to STATE_CHECK, then we don't need to do anything
-    // Similarly, if the state is already STATE_CHECK and we are trying to set it to STATE_CHECK,
-    // then we don't need to do anything because a previous _notify call has already set this state and all observers as STATE_CHECK
+    // If the state is already STATE_DIRTY and we are trying to set it to STATE_CHECK,
+    // then we don't need to do anything. Similarly, if the state is already STATE_CHECK
+    // and we are trying to set it to STATE_CHECK, then we don't need to do anything because
+    // a previous _notify call has already set this state and all observers as STATE_CHECK
     if (this._state >= state) return;
 
     this._state = state;
@@ -287,7 +300,7 @@ export class Computation<T = any>
   }
 
   _setError(error: unknown) {
-    // If we are not in an error state, then our error state is changing and we need to notify _error observers
+    // If we are not in an error state, then our error state is changing so notify _error observers
     if ((this._stateFlags & ERROR_BIT) === 0) {
       this._error?._notify(STATE_DIRTY);
       this._stateFlags |= ERROR_BIT;
@@ -320,17 +333,21 @@ export class Computation<T = any>
 
     // Otherwise, our sources' values may have changed, or one of our sources' loading states
     // may have been set to no longer loading. In either case, what we need to do is make sure our
-    // sources all have up to date values and loading states and then update our own value and loading state
+    // sources all have up to date values and loading states and then update our own value and
+    // loading state
 
-    // We keep track of whether any of our sources have changed loading state so that we can update our loading state
-    // This is only necessary if none of them change value because update() will also cause us to recompute our loading state
+    // We keep track of whether any of our sources have changed loading state so that we can update
+    // our loading state. This is only necessary if none of them change value because update() will
+    // also cause us to recompute our loading state.
     let isWaiting = false;
 
-    // If we're in state_check, then that means one of our grandparent sources may have changed value or loading state,
-    // so we need to recursively call _updateIfNecessary to update the state of all of our sources, and then update our value and loading state.
+    // If we're in state_check, then that means one of our grandparent sources may have changed
+    // value or loading state, so we need to recursively call _updateIfNecessary to update the state
+    // of all of our sources, and then update our value and loading state.
     if (this._state === STATE_CHECK) {
       for (let i = 0; i < this._sources!.length; i++) {
-        // Make sure the parent is up to date. If it changed value, then it will mark us as STATE_DIRTY, and we will know to rerun
+        // Make sure the parent is up to date. If it changed value, then it will mark us as
+        // STATE_DIRTY, and we will know to rerun
         this._sources![i]._updateIfNecessary();
 
         // If the parent is loading, then we are waiting
@@ -339,7 +356,7 @@ export class Computation<T = any>
         }
 
         // If the parent changed value, it will mark us as STATE_DIRTY and we need to call update()
-        // We cast because typescript doesn't know that the _updateIfNecessary call above can change our state
+        // Cast because the _updateIfNecessary call above can change our state
         if ((this._state as number) === STATE_DIRTY) {
           // Stop the loop here so we won't trigger updates on other parents unnecessarily
           // If our computation changes to no longer use some sources, we don't
@@ -352,8 +369,7 @@ export class Computation<T = any>
     if (this._state === STATE_DIRTY) {
       update(this);
     } else {
-      // We have checked all our parents and none of them changed value, so we know that our value is up to date
-      // That means that isWaiting correctly represents whether we are waiting on anything (waiting state)
+      // isWaiting has now coallesced all of our parents' loading states
       this._setIsWaiting(isWaiting);
 
       // None of our parents changed value, so our value is up to date (STATE_CLEAN)
@@ -366,8 +382,11 @@ export class Computation<T = any>
     return (this._stateFlags & WAITING_BIT) !== 0 || this._promise !== null;
   }
 
-  /** If we are a child of a computation that has been rerun then we need to remove ourselves from the graph */
+  /**
+   * Remove ourselves from the owner graph and the computation graph
+   */
   _disposeNode() {
+    // If we've already been disposed, don't try to dispose twice
     if (this._state === STATE_DISPOSED) return;
 
     // Unlink ourselves from our sources' observers array so that we can be garbage collected
@@ -394,14 +413,13 @@ class LoadingState<T = any> implements SourceType {
   }
 
   _updateIfNecessary(): void {
-    // When a computation reads .loading() and subscribes to LoadingState, they are reading the bitflags on _origin
-    // To make sure those are up to date, we call _updateIfNecessary on _origin
+    // When a computation reads .loading() and tracks this LoadingState, they read _origin.isLoading
+    // To make sure that is up to date, we call _updateIfNecessary on _origin
     this._origin._updateIfNecessary();
   }
 
   _isLoading(): boolean {
-    // The value is loading if _origin is loading
-    return this._origin._isLoading();
+    return false;
   }
 
   /** Notify observers and downstream computation states that the loading state has changed */
@@ -409,7 +427,7 @@ class LoadingState<T = any> implements SourceType {
     if (this._origin._observers) {
       for (let i = 0; i < this._origin._observers.length; i++) {
         if (value) {
-          // Eagerly update all computations (because we know that only the loading state has changed, not any values)
+          // Eagerly update all computations because only the loading state could have changed
           this._origin._observers[i]._setIsWaiting(true);
         } else {
           // Lazily update computations (because we don't know whether the value has changed)
@@ -420,7 +438,7 @@ class LoadingState<T = any> implements SourceType {
     this._notify(STATE_DIRTY);
   }
 
-  /** Notify effects that observe this loading state directly that it has updated (or might have updated). */
+  /** Notify computations that observe this loading state directly that it has updated */
   _notify(state: number) {
     if (this._observers) {
       for (let i = 0; i < this._observers.length; i++) {
@@ -507,28 +525,31 @@ export function update<T>(node: Computation<T>) {
     node.dispose(false);
     if (node._disposal) node.emptyDisposal();
 
-    // Rerun the node's _compute function, setting node as owner and listener so that any computations read are added to node's sources
-    // and any computations are automatically disposed if `node` is rerun
+    // Rerun the node's _compute function, setting node as owner and listener so that any
+    // computations read are added to node's sources and any computations are automatically disposed
+    // if `node` is rerun
     const result = compute(node, node._compute!, node);
 
-    // Update the node's value (if the function returns a promise, write will handle that automatically)
+    // Update the node's value
     node.write(result);
 
-    // newLoadingState will be true if any of the sources we read were loading
+    // newLoadingState coallecesses if any of the sources we read were loading
     node._setIsWaiting(newLoadingState);
   } catch (error) {
     node._setError(error);
   } finally {
     if (newSources) {
       // If there are new sources, that means the end of the sources array has changed
-      // newSourcesIndex keeps track of the index of the first new source (all sources before that are the same)
+      // newSourcesIndex keeps track of the index of the first new source
+      // See track() above for more info
 
       // We need to remove any old sources after newSourcesIndex
       if (node._sources) removeSourceObservers(node, newSourcesIndex);
 
       // First we update our own sources array (uplinks)
       if (node._sources && newSourcesIndex > 0) {
-        // If we shared some sources with the previous execution, we need to copy those over to the new sources array
+        // If we shared some sources with the previous execution, we need to copy those over to the
+        // new sources array
 
         // First we need to make sure the sources array is long enough to hold all the new sources
         node._sources.length = newSourcesIndex + newSources.length;
@@ -538,20 +559,20 @@ export function update<T>(node: Computation<T>) {
           node._sources[newSourcesIndex + i] = newSources[i];
         }
       } else {
-        // If we didn't share any sources with the previous execution, we can just set the sources array to newSources
+        // If we didn't share any sources with the previous execution, set the sources array to newSources
         node._sources = newSources;
       }
 
+      // For each new source, we need to add this `node` to the source's observers array (downlinks)
       let source: SourceType;
       for (let i = newSourcesIndex; i < node._sources.length; i++) {
         source = node._sources[i];
-        // For each new source, we need to add this `node` to the source's observers array (downlinks)
         if (!source._observers) source._observers = [node];
         else source._observers.push(node);
       }
     } else if (node._sources && newSourcesIndex < node._sources.length) {
-      // If there are no new sources, but the sources array is longer than newSourcesIndex, that means the sources array has just shrunk
-      // so we remove the tail end
+      // If there are no new sources, but the sources array is longer than newSourcesIndex,
+      // that means the sources array has just shrunk so we remove the tail end
       removeSourceObservers(node, newSourcesIndex);
       node._sources.length = newSourcesIndex;
     }
@@ -562,7 +583,7 @@ export function update<T>(node: Computation<T>) {
     newLoadingState = prevLoadingState;
 
     // By now, we have updated the node's value and sources array, so we can mark it as clean
-    // TODO: This assumes that the computation didn't write to any signals, we should throw an error if it did
+    // TODO: This assumes that the computation didn't write to any signals, throw an error if it did
     node._state = STATE_CLEAN;
   }
 }
