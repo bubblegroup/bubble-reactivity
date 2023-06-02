@@ -1,31 +1,41 @@
 /* eslint-disable */
 
+import { Effect, flushSync } from "./effect";
 import { STATE_DIRTY, STATE_DISPOSED } from "./constants";
 import { Computation } from "./core";
-import { Effect, flushSync } from "./effect";
+import { runWithOwner } from "./index";
 
 export class Autorun extends Effect {
+  _paused = false;
+  _cleanup: (() => void) | undefined;;
   constructor(
     fn: () => void,
     cleanup?: (() => void) | undefined,
     run_once = false
   ) {
-    super(undefined, () => {
-      console.log("HI");
-      return fn();
-    });
-    if (cleanup) this._disposal = [cleanup];
+    super(undefined, fn);
+    this._cleanup = cleanup;
+    flushSync();
   }
   invalidate() {
-    this._state = STATE_DIRTY;
-    flushSync();
+    this._notify(STATE_DIRTY);
+    if(!this._paused) flushSync();
   }
   destroy() {
     this.dispose(true);
   }
-  pause() {}
-  unpause() {}
+  pause() {
+    this._paused = true;
+  }
+  unpause() {
+    this._paused = false;
+    this._updateIfNecessary();
+  }
 
+  emptyDisposal(): void {
+    this._cleanup?.();
+    super.emptyDisposal();
+  }
   set_run_immediately() {}
   alive() {}
   run_me() {
@@ -36,7 +46,7 @@ export class Autorun extends Effect {
   stop_tracking() {}
 
   get _is_destroyed() {
-    return (this._state = STATE_DISPOSED);
+    return this._state == STATE_DISPOSED;
   }
 }
 
@@ -64,7 +74,7 @@ export class Watcher {
 }
 
 export function autorun_top(fn: () => void) {
-  return fn();
+  return runWithOwner(null, () => fn());
 }
 
 interface AutorunOptions {

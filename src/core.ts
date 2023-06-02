@@ -537,7 +537,7 @@ export function update<T>(node: Computation<T>) {
 
   try {
     node.dispose(false);
-    if (node._disposal) node.emptyDisposal();
+    node.emptyDisposal();
 
     // Rerun the node's _compute function, setting node as owner and listener so that any
     // computations read are added to node's sources and any computations are automatically disposed

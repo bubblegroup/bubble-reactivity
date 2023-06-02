@@ -95,17 +95,19 @@ export class Owner {
     this._prevSibling = null;
     this._context = null;
     this._state = STATE_DISPOSED;
-    if (this._disposal) this.emptyDisposal();
+    this.emptyDisposal();
   }
 
   emptyDisposal() {
+    if (!this._disposal) return;
+
     if (Array.isArray(this._disposal)) {
       for (let i = 0; i < this._disposal.length; i++) {
         const callable = this._disposal[i];
         callable.call(callable);
       }
     } else {
-      this._disposal!.call(this._disposal);
+      this._disposal.call(this._disposal);
     }
 
     this._disposal = null;

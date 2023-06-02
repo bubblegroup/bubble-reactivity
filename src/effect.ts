@@ -1,4 +1,4 @@
-import { Computation, hooks, type MemoOptions } from "./core";
+import { Computation, type MemoOptions, hooks } from "./core";
 import { STATE_CLEAN, STATE_DISPOSED } from "./constants";
 import { handleError } from "./owner";
 
