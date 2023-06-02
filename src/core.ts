@@ -267,10 +267,6 @@ export class Computation<T = any>
       }
     }
 
-    if (!this._sources) {
-      hooks.signalWritten();
-    }
-
     // We return the value so that .write can be used in an expression
     // (although it is not usually recommended)
     return this._value!;

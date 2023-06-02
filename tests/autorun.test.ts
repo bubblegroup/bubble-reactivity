@@ -368,14 +368,11 @@ it("initially_paused", () => {
 // only once when its dependency is changed
 it("not_ready_only_runs_once_on_ready", () => {
   const switch1 = new Switch("my test Switch 1");
-  const watcher = new Watcher(
-    {
-      fn: () => {
-        return switch1.promise();
-      },
+  const watcher = new Watcher({
+    fn: () => {
+      return switch1.promise();
     },
-    true
-  );
+  });
   const A = autorun_spy("A", {
     do: () => {
       watcher.get();

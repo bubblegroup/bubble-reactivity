@@ -2,7 +2,7 @@
 
 import { Effect, flushSync } from "./effect";
 import { STATE_DIRTY, STATE_DISPOSED } from "./constants";
-import { Computation } from "./core";
+import { Computation, hooks } from "./core";
 import { runWithOwner } from "./index";
 
 export class Autorun extends Effect {
@@ -23,7 +23,7 @@ export class Autorun extends Effect {
   invalidate() {
     if (this._run_once) return;
     this._notify(STATE_DIRTY);
-    if (!this._paused) this._updateIfNecessary();
+    this._updateIfNecessary();
   }
   destroy() {
     this.dispose(true);
@@ -35,7 +35,10 @@ export class Autorun extends Effect {
     this._paused = false;
     this._updateIfNecessary();
   }
-
+  _updateIfNecessary(): void {
+    if (this._paused) return;
+    super._updateIfNecessary();
+  }
   dispose(self = true) {
     if (this._state == STATE_DISPOSED) return;
     if (this._cleanup && self) this._cleanup();
@@ -62,6 +65,7 @@ export class Box<T> extends Computation {
   }
   set(v: T) {
     this.write(v);
+    hooks.signalWritten();
   }
   get(): T {
     return this.read();
@@ -69,7 +73,7 @@ export class Box<T> extends Computation {
 }
 
 export class Watcher extends Computation {
-  constructor(fn: { fn: () => void }, something: boolean) {
+  constructor(fn: { fn: () => void }) {
     super(undefined, fn.fn);
   }
   get() {
@@ -135,8 +139,8 @@ function conditional_autorun(
 export class Switch extends Computation<boolean> {
   name: string;
   _destroyed: boolean;
-  _resolve: (() => void) | undefined;
-  _promiseWait: Promise<void> = new Promise((resolve) => {
+  _resolve: ((v: boolean) => void) | undefined;
+  _promise: Promise<boolean> = new Promise((resolve) => {
     this._resolve = resolve;
   });
 
@@ -164,9 +168,10 @@ export class Switch extends Computation<boolean> {
     }
 
     this.write(false);
-    this._promiseWait = new Promise((resolve) => {
+    this._promise = new Promise((resolve) => {
       this._resolve = resolve;
     });
+    hooks.signalWritten();
     // this._was_updated()
   }
 
@@ -175,7 +180,8 @@ export class Switch extends Computation<boolean> {
       return;
     }
     this.write(true);
-    this._resolve!();
+    this._resolve!(true);
+    hooks.signalWritten();
     // this._was_updated()
   }
 
@@ -185,11 +191,11 @@ export class Switch extends Computation<boolean> {
     if (!this._value) {
       this.turn_on();
     } else {
-      // this._update_dead()
+      this.dispose(true);
     }
   }
 
-  promise(): Promise<void> {
-    return this._promiseWait;
+  promise(): boolean {
+    return this.wait();
   }
 }
