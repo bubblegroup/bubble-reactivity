@@ -44,6 +44,7 @@ export class Autorun extends Effect {
   set_run_immediately() {}
   alive() {}
   run_me() {
+    this._updateIfNecessary();
     return this;
   }
   destroy_subs() {}
@@ -67,13 +68,12 @@ export class Box<T> extends Computation {
   }
 }
 
-export class Watcher {
-  x: Computation;
+export class Watcher extends Computation {
   constructor(fn: { fn: () => void }, something: boolean) {
-    this.x = new Computation(undefined, fn.fn);
+    super(undefined, fn.fn);
   }
   get() {
-    return this.x.read();
+    return this.wait();
   }
 }
 
@@ -105,7 +105,7 @@ export function autorun(
   let { do: do_fn, while: while_fn, finally: finally_fn } = options;
 
   if (!while_fn) {
-    return new Autorun(do_fn, finally_fn);
+    return new Autorun(do_fn, finally_fn).run_me();
   } else {
     return conditional_autorun(do_fn, while_fn, finally_fn);
   }
@@ -127,28 +127,27 @@ function conditional_autorun(
     } else {
       run.pause();
     }
-  });
+  }).run_me();
 
   return run;
 }
 
-export class Switch {
+export class Switch extends Computation<boolean> {
   name: string;
-  _turned: boolean;
   _destroyed: boolean;
   _resolve: (() => void) | undefined;
-  _promise: Promise<void> = new Promise((resolve) => {
+  _promiseWait: Promise<void> = new Promise((resolve) => {
     this._resolve = resolve;
   });
 
   constructor(name: string) {
+    super(false, null);
     this.name = name;
-    this._turned = false;
     this._destroyed = false;
   }
 
   is_turned(): boolean {
-    return this._turned;
+    return this._value!;
   }
 
   is_dead(): boolean {
@@ -160,22 +159,22 @@ export class Switch {
   }
 
   turn_off(): void {
-    if (!this._turned) {
+    if (!this._value) {
       return;
     }
 
-    this._turned = false;
-    this._promise = new Promise((resolve) => {
+    this.write(false);
+    this._promiseWait = new Promise((resolve) => {
       this._resolve = resolve;
     });
     // this._was_updated()
   }
 
   turn_on(): void {
-    if (this._turned) {
+    if (this._value) {
       return;
     }
-    this._turned = true;
+    this.write(true);
     this._resolve!();
     // this._was_updated()
   }
@@ -183,7 +182,7 @@ export class Switch {
   // Indicates that the switch is permanently turned and no longer needed
   destroy(): void {
     this._destroyed = true;
-    if (!this._turned) {
+    if (!this._value) {
       this.turn_on();
     } else {
       // this._update_dead()
@@ -191,6 +190,6 @@ export class Switch {
   }
 
   promise(): Promise<void> {
-    return this._promise;
+    return this._promiseWait;
   }
 }

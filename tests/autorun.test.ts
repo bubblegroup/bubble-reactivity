@@ -370,7 +370,7 @@ it("not_ready_only_runs_once_on_ready", () => {
   const switch1 = new Switch("my test Switch 1");
   const watcher = new Watcher(
     {
-      fn: function () {
+      fn: () => {
         return switch1.promise();
       },
     },
