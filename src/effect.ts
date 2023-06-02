@@ -60,7 +60,7 @@ hooks.signalWritten = flushSync;
 export class Effect<T = any> extends Computation<T> {
   constructor(initialValue: T, compute: () => T, options?: MemoOptions<T>) {
     super(initialValue, compute, options);
-    effects.push(this);
+    this._updateIfNecessary();
   }
   _notify(state: number): void {
     if (this._state >= state) return;

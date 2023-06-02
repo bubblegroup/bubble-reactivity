@@ -15,7 +15,6 @@ export class Autorun extends Effect {
   ) {
     super(undefined, fn);
     this._cleanup = cleanup;
-    flushSync();
   }
   invalidate() {
     this._notify(STATE_DIRTY);
