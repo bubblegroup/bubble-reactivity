@@ -7,7 +7,10 @@ import { runWithOwner } from "./index";
 
 export class Autorun extends Effect {
   _paused = false;
-  _cleanup: (() => void) | undefined;;
+  _ancestor_paused = false;
+  _cleanup: (() => void) | undefined;
+  _run_once: boolean;
+
   constructor(
     fn: () => void,
     cleanup?: (() => void) | undefined,
@@ -15,10 +18,12 @@ export class Autorun extends Effect {
   ) {
     super(undefined, fn);
     this._cleanup = cleanup;
+    this._run_once = run_once;
   }
   invalidate() {
+    if (this._run_once) return;
     this._notify(STATE_DIRTY);
-    if(!this._paused) flushSync();
+    if (!this._paused) this._updateIfNecessary();
   }
   destroy() {
     this.dispose(true);
@@ -31,9 +36,10 @@ export class Autorun extends Effect {
     this._updateIfNecessary();
   }
 
-  emptyDisposal(): void {
-    this._cleanup?.();
-    super.emptyDisposal();
+  dispose(self = true) {
+    if (this._state == STATE_DISPOSED) return;
+    if (this._cleanup && self) this._cleanup();
+    super.dispose(self);
   }
   set_run_immediately() {}
   alive() {}
@@ -49,16 +55,15 @@ export class Autorun extends Effect {
   }
 }
 
-export class Box<T> {
-  value: T;
+export class Box<T> extends Computation {
   constructor(value: T) {
-    this.value = value;
+    super(value, null);
   }
   set(v: T) {
-    this.value = v;
+    this.write(v);
   }
-  get(): boolean {
-    return false;
+  get(): T {
+    return this.read();
   }
 }
 
@@ -111,8 +116,6 @@ function conditional_autorun(
   while_fn: () => boolean,
   finally_fn?: (() => void) | undefined
 ): Autorun {
-  let has_ever_run = false;
-
   const run = new Autorun(do_fn, () => {
     finally_fn?.();
     pauser.destroy();
@@ -121,14 +124,10 @@ function conditional_autorun(
   const pauser = new Autorun(() => {
     if (while_fn()) {
       run.unpause();
-      if (!has_ever_run) {
-        has_ever_run = true;
-        run.run_me();
-      }
     } else {
       run.pause();
     }
-  }).run_me();
+  });
 
   return run;
 }
@@ -137,6 +136,10 @@ export class Switch {
   name: string;
   _turned: boolean;
   _destroyed: boolean;
+  _resolve: (() => void) | undefined;
+  _promise: Promise<void> = new Promise((resolve) => {
+    this._resolve = resolve;
+  });
 
   constructor(name: string) {
     this.name = name;
@@ -162,6 +165,9 @@ export class Switch {
     }
 
     this._turned = false;
+    this._promise = new Promise((resolve) => {
+      this._resolve = resolve;
+    });
     // this._was_updated()
   }
 
@@ -170,6 +176,7 @@ export class Switch {
       return;
     }
     this._turned = true;
+    this._resolve!();
     // this._was_updated()
   }
 
@@ -181,5 +188,9 @@ export class Switch {
     } else {
       // this._update_dead()
     }
+  }
+
+  promise(): Promise<void> {
+    return this._promise;
   }
 }

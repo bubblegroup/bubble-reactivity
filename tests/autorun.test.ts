@@ -371,7 +371,7 @@ it("not_ready_only_runs_once_on_ready", () => {
   const watcher = new Watcher(
     {
       fn: function () {
-        b_async.ensure_ready(switch1);
+        return switch1.promise();
       },
     },
     true

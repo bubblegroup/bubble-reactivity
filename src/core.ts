@@ -71,8 +71,8 @@ let newLoadingState = false;
 export const hooks = {
   signalWritten: () => {
     // Noop, to be replaced
-  }
-}
+  },
+};
 
 /** Computation threw a value during execution */
 const ERROR_BIT = 1;
