@@ -62,6 +62,7 @@ class AutorunSpy {
     };
 
     this.autorun = autorun(wrapped);
+    this.autorun._name = name;
   }
 
   reset_counts() {

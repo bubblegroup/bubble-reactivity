@@ -30,17 +30,45 @@ export class Autorun extends Effect {
   destroy() {
     this.dispose(true);
   }
+
   pause() {
     this._paused = true;
+    this.notify_pause(true);
   }
+
+  notify_pause(pause: boolean) {
+    let current = this._nextSibling as Computation | null;
+
+    while (current && current._parent === this) {
+      if (current instanceof Autorun) {
+        if (!current._paused && current._ancestor_paused && !pause) {
+          current._ancestor_paused = false;
+          current._updateIfNecessary();
+        } else {
+          current._ancestor_paused = pause;
+        }
+        if (current._paused != pause) {
+          current.notify_pause(pause);
+        }
+      }
+      
+      current = current._nextSibling as Computation;
+    }
+  }
+
   unpause() {
     this._paused = false;
+    if (this._ancestor_paused) return;
+
+    this.notify_pause(false);
     this._updateIfNecessary();
   }
+
   _updateIfNecessary(): void {
-    if (this._paused) return;
+    if (this._paused || this._ancestor_paused) return;
     super._updateIfNecessary();
   }
+
   dispose(self = true) {
     if (this._state == STATE_DISPOSED) return;
     if (this._cleanup && self) this._cleanup();
