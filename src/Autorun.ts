@@ -1,8 +1,8 @@
 /* eslint-disable */
 
-import { Effect, flushSync } from "./effect";
+import { Effect, batch } from "./effect";
 import { STATE_DIRTY, STATE_DISPOSED } from "./constants";
-import { Computation, hooks } from "./core";
+import { Computation } from "./core";
 import { runWithOwner } from "./index";
 
 export class Autorun extends Effect {
@@ -22,8 +22,10 @@ export class Autorun extends Effect {
   }
   invalidate() {
     if (this._run_once) return;
-    this._notify(STATE_DIRTY);
-    this._updateIfNecessary();
+    batch(() => {
+      this._notify(STATE_DIRTY);
+      this._updateIfNecessary();
+    });
   }
   destroy() {
     this.dispose(true);
@@ -64,8 +66,9 @@ export class Box<T> extends Computation {
     super(value, null);
   }
   set(v: T) {
-    this.write(v);
-    hooks.signalWritten();
+    batch(() => {
+      this.write(v);
+    });
   }
   get(): T {
     return this.read();
@@ -120,20 +123,22 @@ function conditional_autorun(
   while_fn: () => boolean,
   finally_fn?: (() => void) | undefined
 ): Autorun {
-  const run = new Autorun(do_fn, () => {
-    finally_fn?.();
-    pauser.destroy();
+  return batch(() => {
+    const run = new Autorun(do_fn, () => {
+      finally_fn?.();
+      pauser.destroy();
+    });
+
+    const pauser = new Autorun(() => {
+      if (while_fn()) {
+        run.unpause();
+      } else {
+        run.pause();
+      }
+    }).run_me();
+
+    return run;
   });
-
-  const pauser = new Autorun(() => {
-    if (while_fn()) {
-      run.unpause();
-    } else {
-      run.pause();
-    }
-  }).run_me();
-
-  return run;
 }
 
 export class Switch extends Computation<boolean> {
@@ -167,11 +172,12 @@ export class Switch extends Computation<boolean> {
       return;
     }
 
-    this.write(false);
-    this._promise = new Promise((resolve) => {
-      this._resolve = resolve;
+    batch(() => {
+      this.write(false);
+      this._promise = new Promise((resolve) => {
+        this._resolve = resolve;
+      });
     });
-    hooks.signalWritten();
     // this._was_updated()
   }
 
@@ -179,9 +185,10 @@ export class Switch extends Computation<boolean> {
     if (this._value) {
       return;
     }
-    this.write(true);
-    this._resolve!(true);
-    hooks.signalWritten();
+    batch(() => {
+      this.write(true);
+      this._resolve!(true);
+    });
     // this._was_updated()
   }
 

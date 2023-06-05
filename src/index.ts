@@ -1,6 +1,6 @@
 import { Computation, MemoOptions, SignalOptions, compute } from "./core";
+import { Effect, batch } from "./effect";
 import { HANDLER, Owner, handleError } from "./owner";
-import { Effect } from "./effect";
 
 export interface Accessor<T> {
   (): T;
@@ -22,7 +22,15 @@ export function createSignal<T>(
   options?: SignalOptions<T>
 ): Signal<T> {
   const node = new Computation(initialValue, null, options);
-  return [() => node.read(), (v) => node.write(v)];
+  return [
+    () => node.read(),
+    (v) => {
+      batch(() => {
+        node.write(v);
+      });
+      return v;
+    },
+  ];
 }
 
 /**
@@ -105,4 +113,4 @@ export function catchError<T, U = Error>(
 
 export { untrack } from "./core";
 export { onCleanup, getOwner } from "./owner";
-export { flushSync } from "./effect";
+export { flushSync, batch } from "./effect";

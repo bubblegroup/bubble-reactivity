@@ -1,4 +1,4 @@
-import { createEffect, createSignal, flushSync } from "../src";
+import { batch, createEffect, createSignal, flushSync } from "../src";
 
 afterEach(() => flushSync());
 
@@ -7,14 +7,15 @@ it("should batch updates", () => {
   const effect = vi.fn($x);
 
   createEffect(effect);
-  flushSync();
-
-  setX(20);
-  setX(30);
-  setX(40);
 
   expect(effect).to.toHaveBeenCalledTimes(1);
-  flushSync();
+
+  batch(() => {
+    setX(20);
+    setX(30);
+    setX(40);
+  });
+
   expect(effect).to.toHaveBeenCalledTimes(2);
 });
 

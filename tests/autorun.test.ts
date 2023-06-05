@@ -172,11 +172,7 @@ function reset_counts(...spies: (AutorunSpy | AutorunSpy[])[]) {
 /**
  * Wait for all scheduled autoruns to finish, by pausing the fiber
  */
-function wait_for_autoruns() {
-  flushSync();
-}
-
-afterEach(() => wait_for_autoruns());
+afterEach(() => flushSync());
 
 it("basic_autorun", () => {
   const A = autorun_spy("A", () => {});
