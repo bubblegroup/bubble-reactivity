@@ -1,5 +1,6 @@
 import { Computation, type MemoOptions, hooks } from "./core";
 import { STATE_CLEAN, STATE_DISPOSED } from "./constants";
+import type { Owner } from "./owner";
 import { handleError } from "./owner";
 
 let runningEffects = false;
@@ -49,20 +50,26 @@ hooks.batch = batch;
  * In particular, it is important that we check all of our parents to see if they will rerun
  * See tests/createEffect: "should run parent effect before child effect" and "should run parent memo before child effect"
  */
-function runTop(node: Computation) {
-  const ancestors = [node];
-  while ((node = node._parent as Computation)) {
-    if (node._state !== STATE_CLEAN) {
-      ancestors.push(node);
+function runTop(node: Computation): void {
+  const ancestors: Computation[] = [];
+
+  for (
+    let current: Owner | null = node;
+    current !== null;
+    current = current._parent
+  ) {
+    if (current._state !== STATE_CLEAN) {
+      ancestors.push(current as Computation);
     }
   }
+
   for (let i = ancestors.length - 1; i >= 0; i--) {
     if (ancestors[i]._state !== STATE_DISPOSED)
       ancestors[i]._updateIfNecessary();
   }
 }
 
-function runEffects() {
+function runEffects(): void {
   if (!effects?.length) {
     return;
   }
@@ -92,7 +99,8 @@ export class Effect<T = any> extends Computation<T> {
     if (effects) effects.push(this);
     else this._updateIfNecessary();
   }
-  _notify(state: number): void {
+
+  override _notify(state: number): void {
     if (this._state >= state) return;
 
     if (this._state === STATE_CLEAN) {
@@ -102,11 +110,12 @@ export class Effect<T = any> extends Computation<T> {
 
     this._state = state;
   }
-  write(value: T) {
+
+  override write(value: T): void {
     this._value = value;
-    return value;
   }
-  _setError(error: unknown): void {
+
+  override _setError(error: unknown): void {
     handleError(this, error);
   }
 }

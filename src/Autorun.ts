@@ -2,7 +2,7 @@
 
 import { Effect, batch } from "./effect";
 import { STATE_DIRTY, STATE_DISPOSED } from "./constants";
-import { Computation } from "./core";
+import { Computation, ERROR_BIT } from "./core";
 import { runWithOwner } from "./index";
 
 export class Autorun extends Effect {
@@ -51,7 +51,7 @@ export class Autorun extends Effect {
           current.notify_pause(pause);
         }
       }
-      
+
       current = current._nextSibling as Computation;
     }
   }
@@ -64,17 +64,17 @@ export class Autorun extends Effect {
     this._updateIfNecessary();
   }
 
-  _updateIfNecessary(): void {
+  override _updateIfNecessary(): void {
     if (this._paused || this._ancestor_paused) return;
     super._updateIfNecessary();
   }
 
-  dispose(self = true) {
+  override dispose(self = true) {
     if (this._state == STATE_DISPOSED) return;
     if (this._cleanup && self) this._cleanup();
     super.dispose(self);
   }
-  set_run_immediately() {}
+  set_run_immediately(value: boolean) {}
   alive() {}
   run_me() {
     this._updateIfNecessary();
@@ -103,12 +103,49 @@ export class Box<T> extends Computation {
   }
 }
 
-export class Watcher extends Computation {
-  constructor(fn: { fn: () => void }) {
-    super(undefined, fn.fn);
+export class Watcher<T> extends Computation<T> {
+  constructor(fn: () => T, options: {}) {
+    super(undefined, fn);
   }
   get() {
     return this.wait();
+  }
+
+  get_ready_key() {
+    return undefined as unknown;
+  }
+
+  once_value(handler: (v: T) => void) {
+    handler(this.wait());
+  }
+
+  dont_track_scheduling() {}
+
+  invalidate() {
+    this._notify(STATE_DIRTY);
+    this._updateIfNecessary();
+  }
+
+  max_expected_time() {
+    return 0;
+  }
+
+  get_current(no_throw?: boolean) {
+    if (this._isLoading()) {
+      return [false, this._promise as unknown] as [false, unknown];
+    } else {
+      return [true, this.read()] as [true, T];
+    }
+  }
+
+  get_current_status() {
+    if (this._isLoading()) {
+      return { status: "not_ready", ready_keys: undefined };
+    } else if (this._stateFlags & ERROR_BIT) {
+      return { status: "error", error: this._value as Error };
+    } else {
+      return { status: "ready", value: this.read() };
+    }
   }
 }
 
@@ -170,17 +207,20 @@ function conditional_autorun(
 }
 
 export class Switch extends Computation<boolean> {
-  name: string;
   _destroyed: boolean;
   _resolve: ((v: boolean) => void) | undefined;
-  _promise: Promise<boolean> = new Promise((resolve) => {
+  override _promise: Promise<boolean> = new Promise((resolve) => {
     this._resolve = resolve;
   });
 
   constructor(name: string) {
     super(false, null);
-    this.name = name;
+    this._name = name;
     this._destroyed = false;
+  }
+
+  get name() {
+    return this._name;
   }
 
   is_turned(): boolean {

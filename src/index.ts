@@ -1,15 +1,10 @@
-import { Computation, MemoOptions, SignalOptions, compute } from "./core";
+import { Computation, compute } from "./core";
 import { Effect, batch } from "./effect";
 import { HANDLER, Owner, handleError } from "./owner";
+import type { MemoOptions, SignalOptions } from "./core";
 
-export interface Accessor<T> {
-  (): T;
-}
-
-export interface Setter<T> {
-  (value: T): T;
-}
-
+export type Accessor<T> = () => T;
+export type Setter<T> = (value: T) => T;
 export type Signal<T> = [read: Accessor<T>, write: Setter<T>];
 
 /**
@@ -56,11 +51,7 @@ export function createEffect<T>(
   initialValue?: T,
   options?: { name?: string }
 ): void {
-  new Effect(
-    initialValue,
-    effect,
-    __DEV__ ? { name: options?.name ?? "effect" } : undefined
-  );
+  void new Effect(initialValue, effect, { name: options?.name ?? "effect" });
 }
 
 /**
@@ -91,6 +82,7 @@ export function runWithOwner<T>(
     return compute(owner, run, null);
   } catch (error) {
     handleError(owner, error);
+    return undefined;
   }
 }
 

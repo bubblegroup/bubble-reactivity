@@ -8,7 +8,7 @@ import {
   Watcher,
   autorun,
   autorun_top,
-} from "../src/Autorun";
+} from "../src/autorun";
 
 function pretty_count(times: number) {
   if (times === 1) {
@@ -365,11 +365,9 @@ it("initially_paused", () => {
 // only once when its dependency is changed
 it("not_ready_only_runs_once_on_ready", () => {
   const switch1 = new Switch("my test Switch 1");
-  const watcher = new Watcher({
-    fn: () => {
-      return switch1.promise();
-    },
-  });
+  const watcher = new Watcher(() => {
+    return switch1.promise();
+  }, {});
   const A = autorun_spy("A", {
     do: () => {
       watcher.get();

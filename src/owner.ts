@@ -38,7 +38,7 @@ export const HANDLER = Symbol("ERROR_HANDLER");
 
 let currentOwner: Owner | null = null;
 
-export function setCurrentOwner(owner: Owner | null) {
+export function setCurrentOwner(owner: Owner | null): Owner | null {
   const out = currentOwner;
   currentOwner = owner;
   return out;
@@ -64,7 +64,7 @@ export class Owner {
     if (currentOwner && !signal) currentOwner.append(this);
   }
 
-  append(owner: Owner) {
+  append(owner: Owner): void {
     owner._parent = this;
     owner._prevSibling = this;
     if (this._nextSibling) this._nextSibling._prevSibling = owner;
@@ -72,7 +72,7 @@ export class Owner {
     this._nextSibling = owner;
   }
 
-  dispose(this: Owner, self = true) {
+  dispose(this: Owner, self = true): void {
     if (this._state === STATE_DISPOSED) return;
 
     const head = self ? this._prevSibling : this;
@@ -89,7 +89,7 @@ export class Owner {
     if (head) head._nextSibling = current;
   }
 
-  _disposeNode() {
+  _disposeNode(): void {
     if (this._prevSibling) this._prevSibling._nextSibling = null;
     this._parent = null;
     this._prevSibling = null;
@@ -98,7 +98,7 @@ export class Owner {
     this.emptyDisposal();
   }
 
-  emptyDisposal() {
+  emptyDisposal(): void {
     if (!this._disposal) return;
 
     if (Array.isArray(this._disposal)) {
@@ -118,7 +118,7 @@ export class Owner {
  * Runs the given function when the parent owner computation is being disposed.
  */
 export function onCleanup(disposable: Disposable): void {
-  if (!disposable || !currentOwner) return;
+  if (!currentOwner) return;
 
   const node = currentOwner;
 
@@ -144,7 +144,7 @@ export function lookup(owner: Owner | null, key: string | symbol): unknown {
   }
 }
 
-export function handleError(owner: Owner | null, error: unknown) {
+export function handleError(owner: Owner | null, error: unknown): void {
   const handler = lookup(owner, HANDLER) as
     | undefined
     | ((error: Error) => void);

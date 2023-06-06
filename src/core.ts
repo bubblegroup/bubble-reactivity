@@ -47,19 +47,19 @@ export interface MemoOptions<T> extends SignalOptions<T> {
 
 interface SourceType {
   _observers: ObserverType[] | null;
-  _updateIfNecessary(): void;
+  _updateIfNecessary: () => void;
 
   // Needed to lazily update to not loading
-  _isLoading(): boolean;
+  _isLoading: () => boolean;
 }
 
 interface ObserverType {
   _sources: SourceType[] | null;
-  _notify(state: number): void;
+  _notify: (state: number) => void;
 
   // Needed to eagerly tell observers that their sources are currently loading
   // (and thus they are too)
-  _setIsWaiting(loading: boolean): void;
+  _setIsWaiting: (loading: boolean) => void;
 }
 
 let currentObserver: ObserverType | null = null;
@@ -75,7 +75,7 @@ export const hooks = {
 };
 
 /** Computation threw a value during execution */
-const ERROR_BIT = 1;
+export const ERROR_BIT = 1;
 /** Computation's ancestors have a unresolved promise */
 const WAITING_BIT = 2;
 
@@ -89,7 +89,6 @@ export class Computation<T = any>
   _value: T | undefined;
   _compute: null | (() => T | Promise<T>);
 
-  // Used in __DEV__ mode, hopefully removed in production
   _name: string | undefined;
 
   // Ideally we would set this default value on the prototype directly, but doing that
@@ -148,10 +147,9 @@ export class Computation<T = any>
     }
 
     // Used when debugging the graph; it is often helpful to know the names of sources/observers
-    if (__DEV__)
-      this._name = options?.name ?? (this._compute ? "computed" : "signal");
+    this._name = options?.name ?? (this._compute ? "computed" : "signal");
 
-    if (options && options.equals !== undefined) this._equals = options.equals;
+    if (options?.equals !== undefined) this._equals = options.equals;
   }
 
   _read(shouldThrow: boolean): T {
@@ -170,7 +168,7 @@ export class Computation<T = any>
       if (shouldThrow) throw new NotReadyError();
     }
 
-    if (this._stateFlags & ERROR_BIT) throw this._value;
+    if (this._stateFlags & ERROR_BIT) throw this._value as Error;
     return this._value!;
   }
 
@@ -225,7 +223,7 @@ export class Computation<T = any>
   }
 
   /** Update the computation with a new value or promise */
-  write(value: T | Promise<T>) {
+  write(value: T | Promise<T>): void {
     if (isPromise(value)) {
       // We are about to change the async state to true, and we want to notify _loading observers
       // if the loading state changes. Thus, we just need to check if the current state is not
@@ -243,7 +241,7 @@ export class Computation<T = any>
         .catch((e) => {
           if (this._promise === value) hooks.batch(() => this._setError(e));
         });
-    } else if (!this._equals || !this._equals(this._value!, value)) {
+    } else if (this._equals === false || !this._equals(this._value!, value)) {
       this._value = value;
 
       // We are about to change the async state to false, and we want to notify _loading observers
@@ -273,7 +271,7 @@ export class Computation<T = any>
   /**
    * Set the current node's state, and recursively mark all of this node's observers as STATE_CHECK
    */
-  _notify(state: number) {
+  _notify(state: number): void {
     // If the state is already STATE_DIRTY and we are trying to set it to STATE_CHECK,
     // then we don't need to do anything. Similarly, if the state is already STATE_CHECK
     // and we are trying to set it to STATE_CHECK, then we don't need to do anything because
@@ -295,7 +293,7 @@ export class Computation<T = any>
    * Change the waiting state of the computation, notifying observers if the computation switches
    * to or from a loading state
    */
-  _setIsWaiting(waiting: boolean) {
+  _setIsWaiting(waiting: boolean): void {
     // Check if changing the waiting state will change the overall loading state
     // If it will, then we need to notify _loading observers that the loading state has changed
     const isSelfPending = this._promise !== null;
@@ -305,7 +303,7 @@ export class Computation<T = any>
     if (waiting) this._stateFlags |= WAITING_BIT;
   }
 
-  _setError(error: unknown) {
+  _setError(error: unknown): void {
     // If we are not in an error state, then our error state is changing so notify _error observers
     if ((this._stateFlags & ERROR_BIT) === 0) {
       this._error?._notify(STATE_DIRTY);
@@ -324,7 +322,7 @@ export class Computation<T = any>
    *
    * This function will ensure that the value and states we read from the computation are up to date
    */
-  _updateIfNecessary() {
+  _updateIfNecessary(): void {
     // If the user tries to read a computation that has been disposed, we throw an error, because
     // they probably kept a reference to it as the parent reran, so there is likely a new computation
     // with the same _compute function that they should be reading instead.
@@ -392,7 +390,7 @@ export class Computation<T = any>
   /**
    * Remove ourselves from the owner graph and the computation graph
    */
-  _disposeNode() {
+  override _disposeNode(): void {
     // If we've already been disposed, don't try to dispose twice
     if (this._state === STATE_DISPOSED) return;
 
@@ -431,7 +429,7 @@ class LoadingState<T = any> implements SourceType {
   }
 
   /** Notify observers and downstream computation states that the loading state has changed */
-  set(value: boolean) {
+  set(value: boolean): void {
     if (this._origin._observers) {
       for (let i = 0; i < this._origin._observers.length; i++) {
         if (value) {
@@ -447,7 +445,7 @@ class LoadingState<T = any> implements SourceType {
   }
 
   /** Notify computations that observe this loading state directly that it has updated */
-  _notify(state: number) {
+  _notify(state: number): void {
     if (this._observers) {
       for (let i = 0; i < this._observers.length; i++) {
         this._observers[i]._notify(state);
@@ -474,7 +472,7 @@ class ErrorState<T> implements SourceType {
   }
 
   /** Notify downstream computation states that the error state has changed */
-  _notify(state: number) {
+  _notify(state: number): void {
     if (this._observers) {
       for (let i = 0; i < this._observers.length; i++) {
         this._observers[i]._notify(state);
@@ -496,7 +494,7 @@ class ErrorState<T> implements SourceType {
  *
  * When the sources do change, we create newSources and push the values that we read into it
  */
-function track(computation: SourceType) {
+function track(computation: SourceType): void {
   if (currentObserver) {
     if (
       !newSources &&
@@ -520,7 +518,7 @@ function track(computation: SourceType) {
  * and error handling if the _compute function throws. It also sets the node as loading
  * if it reads any parents that are currently loading.
  */
-export function update<T>(node: Computation<T>) {
+export function update<T>(node: Computation<T>): void {
   const prevSources = newSources;
   const prevSourcesIndex = newSourcesIndex;
   const prevLoadingState = newLoadingState;
@@ -596,7 +594,7 @@ export function update<T>(node: Computation<T>) {
   }
 }
 
-function removeSourceObservers(node: ObserverType, index: number) {
+function removeSourceObservers(node: ObserverType, index: number): void {
   let source: SourceType;
   let swap: number;
   for (let i = index; i < node._sources!.length; i++) {
