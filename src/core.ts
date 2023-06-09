@@ -68,6 +68,12 @@ let newSources: SourceType[] | null = null;
 let newSourcesIndex = 0;
 let newLoadingState = false;
 
+export const hooks = {
+  batch: (fn: () => void) => {
+    fn();
+  },
+};
+
 /** Computation threw a value during execution */
 const ERROR_BIT = 1;
 /** Computation's ancestors have a unresolved promise */
@@ -127,12 +133,14 @@ export class Computation<T = any>
         (value) => {
           // Writing a new value (that is not a promise) will automatically
           // update the state to "no longer loading"
-          if (this._promise === initialValue) this.write(value);
+          if (this._promise === initialValue)
+            hooks.batch(() => this.write(value));
         },
         (e) => {
           // When the promise errors, we need to set an error state so that future reads of this
           // computation will re-throw the error (until a new value is written/recomputed)
-          if (this._promise === initialValue) this._setError(e);
+          if (this._promise === initialValue)
+            hooks.batch(() => this._setError(e));
         }
       );
     } else {
@@ -218,7 +226,7 @@ export class Computation<T = any>
   }
 
   /** Update the computation with a new value or promise */
-  write(value: T | Promise<T>): T {
+  write(value: T | Promise<T>): void {
     if (isPromise(value)) {
       // We are about to change the async state to true, and we want to notify _loading observers
       // if the loading state changes. Thus, we just need to check if the current state is not
@@ -231,10 +239,10 @@ export class Computation<T = any>
       // When the promise resolves, we need to update our value (or error if the promise rejects)
       value.then(
         (v) => {
-          if (this._promise === value) this.write(v);
+          if (this._promise === value) hooks.batch(() => this.write(v));
         },
         (e) => {
-          if (this._promise === value) this._setError(e);
+          if (this._promise === value) hooks.batch(() => this._setError(e));
         }
       );
     } else if (this._equals === false || !this._equals(this._value!, value)) {
@@ -262,10 +270,6 @@ export class Computation<T = any>
         }
       }
     }
-
-    // We return the value so that .write can be used in an expression
-    // (although it is not usually recommended)
-    return this._value!;
   }
 
   /**
