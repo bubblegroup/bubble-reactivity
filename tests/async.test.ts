@@ -174,12 +174,9 @@ it("should handle async propagation to an effect resetting when value changes", 
 
 it("should handle async propagation to an effect completing", async () => {
   let resolve1: (value: number) => void;
-  const promiseFactory = vi.fn(() => {
-    return new Promise<number>((r) => (resolve1 = r));
-  });
   const s = new Computation(1, null);
   const m = new Computation(undefined, () => {
-    if (s.read() === 1) return promiseFactory();
+    if (s.read() === 1) return new Promise<number>((r) => (resolve1 = r));
     else return 2;
   });
   let loading = false;
@@ -189,8 +186,6 @@ it("should handle async propagation to an effect completing", async () => {
   flushSync();
   expect(loading).toBe(true);
   resolve1!(1);
-  await Promise.resolve();
-  await Promise.resolve();
   await Promise.resolve();
   flushSync();
   expect(loading).toBe(false);
@@ -221,7 +216,6 @@ it("should throw when a promise rejects", async () => {
   m.read();
   reject1!();
   await Promise.resolve();
-  await Promise.resolve();
   expect(() => m.read()).toThrow("test");
 });
 
@@ -233,7 +227,6 @@ it("should throw when a computation promise rejects", async () => {
   const m = new Computation(undefined, () => rejectedPromise);
   m.read();
   reject1!();
-  await Promise.resolve();
   await Promise.resolve();
   expect(() => m.read()).toThrow("test");
 });

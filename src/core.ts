@@ -123,17 +123,18 @@ export class Computation<T = any>
       this._promise = initialValue;
 
       // When the promise resolves, we need to update our value
-      initialValue
-        .then((value) => {
+      initialValue.then(
+        (value) => {
           // Writing a new value (that is not a promise) will automatically
           // update the state to "no longer loading"
           if (this._promise === initialValue) this.write(value);
-        })
-        .catch((e) => {
+        },
+        (e) => {
           // When the promise errors, we need to set an error state so that future reads of this
           // computation will re-throw the error (until a new value is written/recomputed)
           if (this._promise === initialValue) this._setError(e);
-        });
+        }
+      );
     } else {
       // If the initial value is not a promise, we just set it directly
       this._value = initialValue;
@@ -228,14 +229,15 @@ export class Computation<T = any>
       this._promise = value;
 
       // When the promise resolves, we need to update our value (or error if the promise rejects)
-      value
-        .then((v) => {
+      value.then(
+        (v) => {
           if (this._promise === value) this.write(v);
-        })
-        .catch((e) => {
+        },
+        (e) => {
           if (this._promise === value) this._setError(e);
-        });
-    } else if (!this._equals || !this._equals(this._value!, value)) {
+        }
+      );
+    } else if (this._equals === false || !this._equals(this._value!, value)) {
       this._value = value;
 
       // We are about to change the async state to false, and we want to notify _loading observers
