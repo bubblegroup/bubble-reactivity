@@ -75,7 +75,7 @@ export const hooks = {
 };
 
 /** Computation threw a value during execution */
-const ERROR_BIT = 1;
+export const ERROR_BIT = 1;
 /** Computation's ancestors have a unresolved promise */
 const WAITING_BIT = 2;
 
@@ -150,7 +150,7 @@ export class Computation<T = any>
 
     // Used when debugging the graph; it is often helpful to know the names of sources/observers
     if (__DEV__)
-      this._name = options?.name ?? (this._compute ? "computed" : "signal");
+    this._name = options?.name ?? (this._compute ? "computed" : "signal");
 
     if (options?.equals !== undefined) this._equals = options.equals;
   }
