@@ -252,3 +252,17 @@ it("should not be marked as clean if stale promise is resolved", async () => {
   await Promise.resolve();
   expect(comp2.loading()).toBe(true);
 });
+
+it("should not be loading when a promise resolves to the same value", async () => {
+  let resolve1: (value: number) => void;
+  const comp1 = new Computation(1, () => {
+    return  new Promise<number>((r) => (resolve1 = r));
+  });
+  const comp2 = new Computation(undefined, () => comp1.read());
+  expect(comp2.loading()).toBe(true);
+  expect(comp2.loading()).toBe(true);
+  resolve1!(1);
+  await Promise.resolve();
+  expect(comp1.loading()).toBe(false);
+  expect(comp2.loading()).toBe(false);
+});

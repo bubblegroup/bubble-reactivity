@@ -237,28 +237,39 @@ export class Computation<T = any>
           if (this._promise === value) this._setError(e);
         }
       );
-    } else if (this._equals === false || !this._equals(this._value!, value)) {
-      this._value = value;
+    } else {
+      const valueChanged =
+        this._equals === false || !this._equals(this._value!, value);
+
+      if (valueChanged) this._value = value;
 
       // We are about to change the async state to false, and we want to notify _loading observers
       // if the loading state changes. If an ancestor is already unresolved then us becoming
       // unresolved will not change the overall loading state. Otherwise, we need to
       // notify _loading observers that the loading state has changed
-      if ((this._stateFlags & WAITING_BIT) === 0) this._loading?.set(false);
+      const loadingChanged =
+        (this._stateFlags & WAITING_BIT) === 0 && this._promise !== null;
+      if (loadingChanged) this._loading?.set(false);
       this._promise = null;
 
       // If we were in an error state, then our error state is changing and we need to notify
       // _error observers that the error state has changed
-      if ((this._stateFlags & ERROR_BIT) !== 0) {
+      const errorChanged = (this._stateFlags & ERROR_BIT) !== 0;
+      if (errorChanged) {
         this._error?._notify(STATE_DIRTY);
         this._stateFlags &= ~ERROR_BIT;
       }
 
       // Our value has changed, so we need to notify all of our observers that the value has
       // changed and so they must rerun
-      if (this._observers) {
+      if ((valueChanged || loadingChanged || errorChanged) && this._observers) {
         for (let i = 0; i < this._observers.length; i++) {
-          this._observers[i]._notify(STATE_DIRTY);
+          // If the value or error changed, we know downstream computations must rerun
+          // If only the loading state changed, then we only need to check downstream computations
+          // because updateIfNecessary will update their loading states
+          this._observers[i]._notify(
+            valueChanged || errorChanged ? STATE_DIRTY : STATE_CHECK
+          );
         }
       }
     }
