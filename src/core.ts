@@ -86,8 +86,8 @@ export class Computation<T = any>
   // Used in __DEV__ mode, hopefully removed in production
   _name: string | undefined;
 
-  // Ideally we would set this default value on the prototype directly, but doing that
-  // in typescript causes issues.
+  // Using false is an optimization as an alternative to _equals: () => false
+  // which could enable more efficient DIRTY notification
   _equals: false | ((a: T, b: T) => boolean) = isEqual;
 
   /** Whether the computation is an error or has ancestors that are unresolved */

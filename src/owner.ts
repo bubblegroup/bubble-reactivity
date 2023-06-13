@@ -22,8 +22,8 @@
  *    |
  *    d
  *
- * Following the _nextSibling pointers of each owner will first give you its children, and then its siblings.
- * a -> b -> c -> d -> e
+ * Following the _nextSibling pointers of each owner will first give you its children, and then its siblings (in reverse).
+ * a -> e -> c -> d -> b
  *
  * Note that the owner tree is largely orthogonal to the reactivity tree, and is much closer to the component tree.
  */
@@ -52,9 +52,13 @@ export function getOwner(): Owner | null {
 }
 
 export class Owner {
+  // We flatten the owner tree into a linked list so that we don't need a pointer to .firstChild
+  // However, the children are actually added in reverse creation order
+  // See comment at the top of the file for an example of the _nextSibling traversal
   _parent: Owner | null = null;
   _nextSibling: Owner | null = null;
   _prevSibling: Owner | null = null;
+
   _state: number = STATE_CLEAN;
 
   _disposal: Disposable | Disposable[] | null = null;
