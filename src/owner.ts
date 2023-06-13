@@ -22,8 +22,8 @@
  *    |
  *    d
  *
- * Following the _nextSibling pointers of each owner will first give you its children, and then its siblings.
- * a -> b -> c -> d -> e
+ * Following the _nextSibling pointers of each owner will first give you its children, and then its siblings (in reverse).
+ * a -> e -> c -> d -> b
  *
  * Note that the owner tree is largely orthogonal to the reactivity tree, and is much closer to the component tree.
  */
@@ -38,7 +38,7 @@ export const HANDLER = Symbol("ERROR_HANDLER");
 
 let currentOwner: Owner | null = null;
 
-export function setCurrentOwner(owner: Owner | null) {
+export function setCurrentOwner(owner: Owner | null): Owner | null {
   const out = currentOwner;
   currentOwner = owner;
   return out;
@@ -52,23 +52,23 @@ export function getOwner(): Owner | null {
 }
 
 export class Owner {
-  _parent: Owner | null;
-  _nextSibling: Owner | null;
-  _prevSibling: Owner | null;
+  // We flatten the owner tree into a linked list so that we don't need a pointer to .firstChild
+  // However, the children are actually added in reverse creation order
+  // See comment at the top of the file for an example of the _nextSibling traversal
+  _parent: Owner | null = null;
+  _nextSibling: Owner | null = null;
+  _prevSibling: Owner | null = null;
+
   _state: number = STATE_CLEAN;
 
   _disposal: Disposable | Disposable[] | null = null;
   _context: null | ContextRecord = null;
-  _compute: null | unknown = null;
 
   constructor(signal = false) {
-    this._parent = null;
-    this._nextSibling = null;
-    this._prevSibling = null;
     if (currentOwner && !signal) currentOwner.append(this);
   }
 
-  append(owner: Owner) {
+  append(owner: Owner): void {
     owner._parent = this;
     owner._prevSibling = this;
     if (this._nextSibling) this._nextSibling._prevSibling = owner;
@@ -76,7 +76,7 @@ export class Owner {
     this._nextSibling = owner;
   }
 
-  dispose(this: Owner, self = true) {
+  dispose(this: Owner, self = true): void {
     if (this._state === STATE_DISPOSED) return;
 
     const head = self ? this._prevSibling : this;
@@ -84,32 +84,34 @@ export class Owner {
 
     while (current && current._parent === this) {
       current.dispose(true);
-      current.disposeNode();
+
       current = current._nextSibling as Computation;
     }
 
-    if (self) this.disposeNode();
+    if (self) this._disposeNode();
     if (current) current._prevSibling = !self ? this : this._prevSibling;
     if (head) head._nextSibling = current;
   }
 
-  disposeNode() {
+  _disposeNode(): void {
     if (this._prevSibling) this._prevSibling._nextSibling = null;
     this._parent = null;
     this._prevSibling = null;
     this._context = null;
     this._state = STATE_DISPOSED;
-    if (this._disposal) this.emptyDisposal();
+    this.emptyDisposal();
   }
 
-  emptyDisposal() {
+  emptyDisposal(): void {
+    if (!this._disposal) return;
+
     if (Array.isArray(this._disposal)) {
       for (let i = 0; i < this._disposal.length; i++) {
         const callable = this._disposal[i];
         callable.call(callable);
       }
     } else {
-      this._disposal!.call(this._disposal);
+      this._disposal.call(this._disposal);
     }
 
     this._disposal = null;
@@ -120,7 +122,7 @@ export class Owner {
  * Runs the given function when the parent owner computation is being disposed.
  */
 export function onCleanup(disposable: Disposable): void {
-  if (!disposable || !currentOwner) return;
+  if (!currentOwner) return;
 
   const node = currentOwner;
 
@@ -146,7 +148,7 @@ export function lookup(owner: Owner | null, key: string | symbol): unknown {
   }
 }
 
-export function handleError(owner: Owner | null, error: unknown) {
+export function handleError(owner: Owner | null, error: unknown): void {
   const handler = lookup(owner, HANDLER) as
     | undefined
     | ((error: Error) => void);

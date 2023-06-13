@@ -1,15 +1,10 @@
-import { Computation, MemoOptions, SignalOptions, compute } from "./core";
+import { Computation, compute } from "./core";
 import { HANDLER, Owner, handleError } from "./owner";
+import type { MemoOptions, SignalOptions } from "./core";
 import { Effect } from "./effect";
 
-export interface Accessor<T> {
-  (): T;
-}
-
-export interface Setter<T> {
-  (value: T): T;
-}
-
+export type Accessor<T> = () => T;
+export type Setter<T> = (value: T) => T;
 export type Signal<T> = [read: Accessor<T>, write: Setter<T>];
 
 /**
@@ -26,7 +21,7 @@ export function createSignal<T>(
 }
 
 /**
- * Creates a new signal whose value is computed and returned by the given function. The given
+ * Creates a new computation whose value is computed and returned by the given function. The given
  * compute function is _only_ re-run when one of it's dependencies are updated. Dependencies are
  * are all signals that are read during execution.
  */
@@ -48,7 +43,7 @@ export function createEffect<T>(
   initialValue?: T,
   options?: { name?: string }
 ): void {
-  new Effect(
+  void new Effect(
     initialValue,
     effect,
     __DEV__ ? { name: options?.name ?? "effect" } : undefined
@@ -63,7 +58,7 @@ export function createRoot<T>(
   init: ((dispose: () => void) => T) | (() => T)
 ): T {
   const owner = new Owner();
-  return compute<T>(
+  return compute(
     owner,
     !init.length ? (init as () => T) : () => init(() => owner.dispose()),
     null
@@ -80,9 +75,10 @@ export function runWithOwner<T>(
   run: () => T
 ): T | undefined {
   try {
-    return compute<T>(owner, run, null);
+    return compute(owner, run, null);
   } catch (error) {
     handleError(owner, error);
+    return undefined;
   }
 }
 

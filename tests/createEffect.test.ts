@@ -341,3 +341,29 @@ it("should run parent effect before child effect", () => {
   flushSync();
   expect(calls).toBe(2);
 });
+
+// TODO: right now if a memo contains an effect, it will only be eagerly evaluated when it is used
+// or when an effect depends on it. Instead, we should make sure that any memos that contain effects
+// as descendants are eagerly evaluated. (We should probably do this through necessitation, by
+// linking and unlinking nodes)
+it("should run parent memo before child effect", () => {
+  const [$x, setX] = createSignal(0);
+  const $condition = createMemo(() => $x());
+
+  let calls = 0;
+
+  const m = createMemo(() => {
+    createEffect(() => {
+      $x();
+      calls++;
+    });
+
+    $condition();
+  });
+
+  m();
+  flushSync();
+  setX(1);
+  flushSync();
+  expect(calls).toBe(2);
+});

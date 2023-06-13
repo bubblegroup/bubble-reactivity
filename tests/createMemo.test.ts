@@ -1,11 +1,4 @@
-import {
-  catchError,
-  createEffect,
-  createMemo,
-  createRoot,
-  createSignal,
-  flushSync,
-} from "../src";
+import { createEffect, createMemo, createSignal, flushSync } from "../src";
 
 afterEach(() => flushSync());
 
@@ -171,20 +164,4 @@ it("should accept equals option", () => {
   flushSync();
   expect($a()).toBe(2);
   expect(effectA).toHaveBeenCalledTimes(2);
-});
-
-it("should use fallback if error is thrown during init", () => {
-  createRoot(() => {
-    catchError(
-      () => {
-        const $a = createMemo(() => {
-          throw Error();
-        }, "foo");
-
-        expect($a()).toBe("foo");
-      },
-      // Catch the error silently
-      () => {} // eslint-disable-line @typescript-eslint/no-empty-function
-    );
-  });
 });

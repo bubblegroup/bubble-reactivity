@@ -22,11 +22,11 @@ it("should dispose of inner computations", () => {
   createRoot((dispose) => {
     $x = createSignal(10);
     $y = createMemo(memo);
-    $y();
+    expect($y()).toBe(20);
     dispose();
   });
 
-  expect($y!()).toBe(20);
+  expect(() => $y!()).toThrow();
   expect(memo).toHaveBeenCalledTimes(1);
 
   flushSync();
@@ -34,7 +34,7 @@ it("should dispose of inner computations", () => {
   $x![1](50);
   flushSync();
 
-  expect($y!()).toBe(20);
+  expect(() => $y!()).toThrow();
   expect(memo).toHaveBeenCalledTimes(1);
 });
 

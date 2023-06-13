@@ -1,5 +1,7 @@
 import { Computation, type MemoOptions } from "./core";
-import { STATE_CLEAN } from "./constants";
+import { STATE_CLEAN, STATE_DISPOSED } from "./constants";
+import type { Owner } from "./owner";
+import { handleError } from "./owner";
 
 let scheduledEffects = false;
 let runningEffects = false;
@@ -19,19 +21,26 @@ function flushEffects() {
 }
 
 /**
- * When reexecuting nodes, we want to be extra careful to avoid double execution of nested owners
+ * When re-executing nodes, we want to be extra careful to avoid double execution of nested owners
  * In particular, it is important that we check all of our parents to see if they will rerun
- * See tests/createEffect: "should run parent effect before child effect"
+ * See tests/createEffect: "should run parent effect before child effect" and "should run parent memo before child effect"
  */
-function runTop(node: Computation) {
-  const ancestors = [node];
-  while ((node = node._parent as Computation)) {
-    if (node._state !== STATE_CLEAN) {
-      ancestors.push(node);
+function runTop(node: Computation): void {
+  const ancestors: Computation[] = [];
+
+  for (
+    let current: Owner | null = node;
+    current !== null;
+    current = current._parent
+  ) {
+    if (current._state !== STATE_CLEAN) {
+      ancestors.push(current as Computation);
     }
   }
+
   for (let i = ancestors.length - 1; i >= 0; i--) {
-    ancestors[i].updateIfNecessary();
+    if (ancestors[i]._state !== STATE_DISPOSED)
+      ancestors[i]._updateIfNecessary();
   }
 }
 
@@ -58,7 +67,7 @@ function runEffects() {
 
 /**
  * Effects are the leaf nodes of our reactive graph. When their sources change, they are automatically
- * added to the queue of effects to reexecute, which will cause them to fetch their sources and recompute
+ * added to the queue of effects to re-execute, which will cause them to fetch their sources and recompute
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export class Effect<T = any> extends Computation<T> {
@@ -66,7 +75,8 @@ export class Effect<T = any> extends Computation<T> {
     super(initialValue, compute, options);
     effects.push(this);
   }
-  notify(state: number): void {
+
+  override _notify(state: number): void {
     if (this._state >= state) return;
 
     if (this._state === STATE_CLEAN) {
@@ -76,8 +86,14 @@ export class Effect<T = any> extends Computation<T> {
 
     this._state = state;
   }
-  write(value: T) {
+
+  override write(value: T): T {
     this._value = value;
+
     return value;
+  }
+
+  override _setError(error: unknown): void {
+    handleError(this, error);
   }
 }

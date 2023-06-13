@@ -95,7 +95,7 @@ if (global.gc) {
     expect(ref.deref()).toBeUndefined();
   });
 } else {
-  // Ignored when there is no access to global.gc
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  it("", () => {});
+  it("", () => {
+    // Ignored when there is no access to global.gc
+  });
 }
