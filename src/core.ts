@@ -35,6 +35,7 @@ import {
   STATE_DISPOSED,
 } from './constants'
 import { NotReadyError } from './error'
+import { DEFAULT_FLAGS, ERROR_BIT, Flags, LOADING_BIT } from './flags'
 
 export interface SignalOptions<T> {
   name?: string
@@ -55,6 +56,8 @@ interface SourceType {
 
 interface ObserverType {
   _sources: SourceType[] | null
+  _handlerMask: Flags
+
   _notify: (state: number) => void
 
   // Needed to eagerly tell observers that their sources are currently loading
@@ -63,15 +66,11 @@ interface ObserverType {
 }
 
 let currentObserver: ObserverType | null = null
+let currentMask: Flags = DEFAULT_FLAGS
 
 let newSources: SourceType[] | null = null
 let newSourcesIndex = 0
-let newLoadingState = false
-
-/** Computation threw a value during execution */
-const ERROR_BIT = 1
-/** Computation's ancestors have a unresolved promise */
-const WAITING_BIT = 2
+let newFlags = 0
 
 export const UNCHANGED: unique symbol = Symbol('unchanged')
 export type UNCHANGED = typeof UNCHANGED
@@ -95,6 +94,10 @@ export class Computation<T = any>
 
   /** Whether the computation is an error or has ancestors that are unresolved */
   _stateFlags = 0
+
+  /** Which flags raised by sources are handled, vs. being passed through. */
+  _handlerMask = DEFAULT_FLAGS
+
   _error: ErrorState<T> | null = null
   _loading: LoadingState<T> | null = null
 
@@ -120,24 +123,21 @@ export class Computation<T = any>
     if (options?.equals !== undefined) this._equals = options.equals
   }
 
-  _read(shouldThrow: boolean): T {
+  _read(): T {
     if (this._compute) this._updateIfNecessary()
 
     // When the currentObserver reads this._value, the want to add this computation as a source
     // so that when this._value changes, the currentObserver will be re-executed
     track(this)
 
-    if (this._isLoading()) {
-      newLoadingState = true
+    // TODO do a handler lookup instead
+    newFlags |= this._stateFlags & ~currentMask
 
-      // If we want to wait for the value to resolve, we throw a NotReadyError which will be caught
-      // That way user's computations never see stale or undefined values.
-      // (cf. React: https://twitter.com/sebmarkbage/status/941214259505119232)
-      if (shouldThrow) throw new NotReadyError()
+    if (this._stateFlags & ERROR_BIT) {
+      throw this._value as Error
+    } else {
+      return this._value!
     }
-
-    if (this._stateFlags & ERROR_BIT) throw this._value as Error
-    return this._value!
   }
 
   /**
@@ -145,7 +145,7 @@ export class Computation<T = any>
    * Automatically re-executes the surrounding computation when the value changes
    */
   read(): T {
-    return this._read(false)
+    return this._read()
   }
 
   /**
@@ -156,7 +156,10 @@ export class Computation<T = any>
    * before continuing
    */
   wait(): T {
-    return this._read(true)
+    if (this.loading()) {
+      throw new NotReadyError()
+    }
+    return this._read()
   }
 
   /**
@@ -170,7 +173,7 @@ export class Computation<T = any>
     if (this._loading === null) {
       this._loading = new LoadingState(this)
     }
-    this._updateIfNecessary()
+    if (this._compute) this._updateIfNecessary()
     track(this._loading)
     return this._isLoading()
   }
@@ -198,7 +201,7 @@ export class Computation<T = any>
     const flagDifference = this._stateFlags ^ flags
 
     const errorChanged = flagDifference & ERROR_BIT
-    const loadingChanged = flagDifference & WAITING_BIT
+    const loadingChanged = flagDifference & LOADING_BIT
 
     if (valueChanged) this._value = value
 
@@ -261,8 +264,8 @@ export class Computation<T = any>
    */
   _setIsWaiting(waiting: boolean): void {
     const newFlags = waiting
-      ? this._stateFlags | WAITING_BIT
-      : this._stateFlags & ~WAITING_BIT
+      ? this._stateFlags | LOADING_BIT
+      : this._stateFlags & ~LOADING_BIT
     this.write(UNCHANGED, newFlags)
   }
 
@@ -339,7 +342,7 @@ export class Computation<T = any>
 
   /** Needed so that we can read whether _sources are loading in _updateIfNecessary */
   _isLoading(): boolean {
-    return (this._stateFlags & WAITING_BIT) !== 0
+    return (this._stateFlags & LOADING_BIT) !== 0
   }
 
   /**
@@ -476,11 +479,11 @@ function track(computation: SourceType): void {
 export function update<T>(node: Computation<T>): void {
   const prevSources = newSources
   const prevSourcesIndex = newSourcesIndex
-  const prevLoadingState = newLoadingState
+  const prevFlags = newFlags
 
   newSources = null as Computation[] | null
   newSourcesIndex = 0
-  newLoadingState = false
+  newFlags = 0
 
   try {
     node.dispose(false)
@@ -492,8 +495,7 @@ export function update<T>(node: Computation<T>): void {
     const result = compute(node, node._compute!, node)
 
     // Update the node's value
-    const loadingFlag = newLoadingState ? WAITING_BIT : 0
-    node.write(result, loadingFlag)
+    node.write(result, newFlags)
   } catch (error) {
     node._setError(error)
   } finally {
@@ -539,7 +541,7 @@ export function update<T>(node: Computation<T>): void {
     // Reset global context after computation
     newSources = prevSources
     newSourcesIndex = prevSourcesIndex
-    newLoadingState = prevLoadingState
+    newFlags = prevFlags
 
     // By now, we have updated the node's value and sources array, so we can mark it as clean
     // TODO: This assumes that the computation didn't write to any signals, throw an error if it did
@@ -594,7 +596,9 @@ export function compute<T>(
 ): T {
   const prevOwner = setCurrentOwner(owner)
   const prevObserver = currentObserver
+  const prevMask = currentMask
   currentObserver = observer
+  currentMask = observer?._handlerMask ?? DEFAULT_FLAGS
 
   try {
     return compute(observer ? observer._value : undefined)
@@ -608,5 +612,6 @@ export function compute<T>(
   } finally {
     setCurrentOwner(prevOwner)
     currentObserver = prevObserver
+    currentMask = prevMask
   }
 }
