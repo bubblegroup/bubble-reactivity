@@ -307,11 +307,18 @@ export class Computation<T = any>
   _setIsWaiting(waiting: boolean): void {
     // Check if changing the waiting state will change the overall loading state
     // If it will, then we need to notify _loading observers that the loading state has changed
-    const isSelfPending = this._promise !== null
-    if (waiting !== isSelfPending) this._loading?.set(waiting)
+    const oldWaiting = this._stateFlags & WAITING_BIT
+    const wasWaiting = oldWaiting !== 0
+    if (waiting != wasWaiting) {
+      this._loading?.set(waiting)
+      this._stateFlags ^= WAITING_BIT
 
-    this._stateFlags &= ~WAITING_BIT
-    if (waiting) this._stateFlags |= WAITING_BIT
+      if (this._observers) {
+        for (let i = 0; i < this._observers.length; i++) {
+          this._observers[i]._notify(STATE_CHECK)
+        }
+      }
+    }
   }
 
   _setError(error: unknown): void {
@@ -319,6 +326,12 @@ export class Computation<T = any>
     if ((this._stateFlags & ERROR_BIT) === 0) {
       this._error?._notify(STATE_DIRTY)
       this._stateFlags |= ERROR_BIT
+    }
+
+    if (this._value !== error && this._observers) {
+      for (let i = 0; i < this._observers.length; i++) {
+        this._observers[i]._notify(STATE_DIRTY)
+      }
     }
 
     // Store the error value in _value

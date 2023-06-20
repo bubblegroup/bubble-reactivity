@@ -1,10 +1,18 @@
-import { createEffect, flushSync } from '../src'
+import {
+  _createAsync,
+  _createPromise,
+  createEffect,
+  flushSync,
+} from '../src'
 import { Computation } from '../src/core'
 import { Effect } from '../src/effect'
 
 it('should propagate loading state when calling read', async () => {
   let resolve: (value: unknown) => void
-  const comp = new Computation(new Promise((r) => (resolve = r)), null)
+  const promise = new Promise((r) => {
+    resolve = r
+  })
+  const comp = _createPromise(promise)
   const chain = new Computation(undefined, () => comp.read())
 
   expect(chain.read()).toBeUndefined()
@@ -20,14 +28,10 @@ it('should propagate loading state when calling read', async () => {
 it('should handle two async sources', async () => {
   let resolve1: (value: number) => void
   let resolve2: (value: number) => void
-  const comp1 = new Computation(
-    new Promise<number>((r) => (resolve1 = r)),
-    null
-  )
-  const comp2 = new Computation(
-    new Promise<number>((r) => (resolve2 = r)),
-    null
-  )
+  const promise1 = new Promise<number>((r) => (resolve1 = r))
+  const promise2 = new Promise<number>((r) => (resolve2 = r))
+  const comp1 = _createPromise(promise1)
+  const comp2 = _createPromise(promise2)
   const chain = new Computation(undefined, () => {
     const c1 = comp1.read()
     const c2 = comp2.read()
@@ -50,9 +54,7 @@ it('should handle two async sources', async () => {
 
 it('should handle async memos', async () => {
   let resolve1: (value: number) => void
-  const comp = new Computation<number | undefined>(undefined, () => {
-    return new Promise<number>((r) => (resolve1 = r))
-  })
+  const comp = _createPromise(new Promise<number>((r) => (resolve1 = r)))
   const chain = new Computation(undefined, () => {
     const c2 = comp.read()
     if (c2) return c2 + 1
@@ -71,24 +73,24 @@ it('should handle async memos', async () => {
 it('should handle async memos chaining', async () => {
   let resolve1: (value: number) => void
   let resolve2: (value: number) => void
-  const comp1 = new Computation(undefined, () => {
-    return new Promise<number>((r) => (resolve1 = r))
-  })
-  const comp2 = new Computation<number | undefined>(undefined, () => {
+  const comp1 = _createPromise(new Promise<number>((r) => (resolve1 = r)))
+  const comp2 = _createAsync(() => {
     comp1.read()
     return new Promise<number>((r) => (resolve2 = r))
-  })
+  }, 1)
 
   comp2.read()
   expect(comp2.loading()).toBe(true)
   expect(comp1.loading()).toBe(true)
   resolve2!(1)
   await Promise.resolve()
+  flushSync()
   expect(comp2.read()).toBe(1)
   expect(comp2.loading()).toBe(true)
   expect(comp1.loading()).toBe(true)
   resolve1!(2)
   await Promise.resolve()
+  flushSync()
   expect(comp2.read()).toBe(1)
   expect(comp1.loading()).toBe(false)
   expect(comp2.loading()).toBe(true)
@@ -96,9 +98,7 @@ it('should handle async memos chaining', async () => {
 
 it('should handle effects watching async memo state', async () => {
   let resolve1: (value: number) => void
-  const comp1 = new Computation<number | undefined>(undefined, () => {
-    return new Promise<number>((r) => (resolve1 = r))
-  })
+  const comp1 = _createPromise(new Promise<number>((r) => (resolve1 = r)))
 
   const effect = vi.fn(() => comp1.loading())
   createEffect(effect)
@@ -114,9 +114,7 @@ it('should handle effects watching async memo state', async () => {
 
 it('should not rerun observers of async memos that load to same value', async () => {
   let resolve1: (value: number) => void
-  const comp = new Computation<number | undefined>(1, () => {
-    return new Promise<number>((r) => (resolve1 = r))
-  })
+  const comp = _createPromise<number>(new Promise((r) => (resolve1 = r)), 1)
   const child = vi.fn(() => comp.read())
   const comp2 = new Computation(undefined, child)
 
@@ -129,9 +127,7 @@ it('should not rerun observers of async memos that load to same value', async ()
 
 it('should handle .wait() on async memos', async () => {
   let resolve1: (value: number) => void
-  const comp = new Computation<number>(undefined, () => {
-    return new Promise<number>((r) => (resolve1 = r))
-  })
+  const comp = _createPromise(new Promise<number>((r) => (resolve1 = r)))
   const before = vi.fn()
   const compute = vi.fn()
   const chain = new Computation(undefined, () => {
@@ -150,14 +146,14 @@ it('should handle .wait() on async memos', async () => {
   expect(before).toBeCalledTimes(2)
 })
 
-it('should handle async propagation to an effect resetting when value changes', () => {
+it('should handle async propagation to an effect resetting when value changes', async () => {
   const promiseFactory = vi.fn(() => {
     return new Promise(() => {
       // never resolves
     })
   })
   const s = new Computation(1, null)
-  const m = new Computation(undefined, () => {
+  const m = _createAsync(async () => {
     if (s.read() === 1) return promiseFactory()
     else return 2
   })
@@ -168,6 +164,9 @@ it('should handle async propagation to an effect resetting when value changes', 
   flushSync()
   expect(loading).toBe(true)
   s.write(2)
+  await Promise.resolve()
+  // Requires two rounds of promises!
+  await Promise.resolve()
   flushSync()
   expect(loading).toBe(false)
 })
@@ -175,8 +174,9 @@ it('should handle async propagation to an effect resetting when value changes', 
 it('should handle async propagation to an effect completing', async () => {
   let resolve1: (value: number) => void
   const s = new Computation(1, null)
+  const p = _createPromise(new Promise<number>((r) => (resolve1 = r)))
   const m = new Computation(undefined, () => {
-    if (s.read() === 1) return new Promise<number>((r) => (resolve1 = r))
+    if (s.read() === 1) return p.read()
     else return 2
   })
   let loading = false
@@ -187,17 +187,19 @@ it('should handle async propagation to an effect completing', async () => {
   expect(loading).toBe(true)
   resolve1!(1)
   await Promise.resolve()
+  await Promise.resolve()
   flushSync()
   expect(loading).toBe(false)
 })
 
-it('should mark downstream async memos as loading on returning a promise', () => {
+it('should mark downstream memos as loading on returning a promise', () => {
   const unresolvedPromise = new Promise<number>(() => {
     // never resolves
   })
   const s = new Computation(false, null)
+  const p = _createPromise(unresolvedPromise)
   const m = new Computation(undefined, () => {
-    if (s.read()) return unresolvedPromise
+    if (s.read()) return p.read()
     else return 2
   })
   const m2 = new Computation(undefined, () => m.read())
@@ -212,10 +214,11 @@ it('should throw when a promise rejects', async () => {
   const rejectedPromise = new Promise<number>((_, reject) => {
     reject1 = () => reject(new Error('test'))
   })
-  const m = new Computation(rejectedPromise, null)
+  const m = _createPromise(rejectedPromise)
   m.read()
   reject1!()
   await Promise.resolve()
+  flushSync()
   expect(() => m.read()).toThrow('test')
 })
 
@@ -224,10 +227,11 @@ it('should throw when a computation promise rejects', async () => {
   const rejectedPromise = new Promise<number>((_, reject) => {
     reject1 = () => reject(new Error('test'))
   })
-  const m = new Computation(undefined, () => rejectedPromise)
+  const m = _createAsync(() => rejectedPromise)
   m.read()
   reject1!()
   await Promise.resolve()
+  flushSync()
   expect(() => m.read()).toThrow('test')
 })
 
@@ -238,7 +242,7 @@ it('should not be marked as clean if stale promise is resolved', async () => {
     // never resolves
   })
   const switcher = new Computation(true, null)
-  const comp1 = new Computation(undefined, () => {
+  const comp1 = _createAsync(() => {
     if (switcher.read()) return promise1
     else return promise2
   })
@@ -250,19 +254,19 @@ it('should not be marked as clean if stale promise is resolved', async () => {
   expect(comp2.loading()).toBe(true)
   resolve1!(1)
   await Promise.resolve()
+  flushSync()
   expect(comp2.loading()).toBe(true)
 })
 
 it('should not be loading when a promise resolves to the same value', async () => {
   let resolve1: (value: number) => void
-  const comp1 = new Computation(1, () => {
-    return new Promise<number>((r) => (resolve1 = r))
-  })
+  const comp1 = _createPromise(new Promise<number>((r) => (resolve1 = r)), 1)
   const comp2 = new Computation(undefined, () => comp1.read())
   expect(comp2.loading()).toBe(true)
   expect(comp2.loading()).toBe(true)
   resolve1!(1)
   await Promise.resolve()
+  flushSync()
   expect(comp1.loading()).toBe(false)
   expect(comp2.loading()).toBe(false)
 })

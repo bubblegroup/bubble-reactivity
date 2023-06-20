@@ -20,6 +20,57 @@ export function createSignal<T>(
   return [() => node.read(), (v) => node.write(v)]
 }
 
+export function _createPromise<T>(
+  promise: Promise<T>,
+  initial?: T,
+  options?: SignalOptions<T>
+): Computation<T> {
+  const signal = new Computation(initial, null, options)
+  signal._setIsWaiting(true)
+  promise.then(
+    (value) => {
+      signal.write(value)
+      signal._setIsWaiting(false)
+    },
+    (error) => {
+      signal._setIsWaiting(false)
+      signal._setError(error)
+    }
+  )
+  return signal
+}
+
+export function createPromise<T>(
+  promise: Promise<T>,
+  initial?: T,
+  options?: SignalOptions<T>
+): Accessor<T> {
+  const signal = _createPromise(promise, initial, options)
+  return () => signal.read()
+}
+
+export function _createAsync<T>(
+  fn: () => Promise<T>,
+  initial?: T,
+  options?: SignalOptions<T>
+): Computation<T> {
+  const lhs = new Computation(undefined, () => {
+    const promise = Promise.resolve(fn())
+    return _createPromise(promise, initial)
+  })
+  const rhs = new Computation(undefined, () => lhs.read().read(), options)
+  return rhs
+}
+
+export function createAsync<T>(
+  fn: () => Promise<T>,
+  initial?: T,
+  options?: SignalOptions<T>
+): Accessor<T> {
+  const rhs = _createAsync(fn, initial, options)
+  return () => rhs.read()
+}
+
 /**
  * Creates a new computation whose value is computed and returned by the given function. The given
  * compute function is _only_ re-run when one of it's dependencies are updated. Dependencies are
