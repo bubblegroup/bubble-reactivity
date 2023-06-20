@@ -1,30 +1,30 @@
 module.exports = {
   extends: [
-    "prettier",
-    "eslint:recommended",
-    "plugin:@typescript-eslint/recommended",
-    "plugin:@typescript-eslint/recommended-requiring-type-checking",
+    'prettier',
+    'eslint:recommended',
+    'plugin:@typescript-eslint/recommended',
+    'plugin:@typescript-eslint/recommended-requiring-type-checking',
   ],
 
-  parser: "@typescript-eslint/parser",
-  plugins: ["@typescript-eslint"],
+  parser: '@typescript-eslint/parser',
+  plugins: ['@typescript-eslint'],
 
   ignorePatterns: [
-    "dist",
-    "coverage",
-    "vite.config.ts",
-    "vitest.js",
-    "tsup.config.ts",
-    ".eslintrc.cjs",
+    'dist',
+    'coverage',
+    'vite.config.ts',
+    'vitest.js',
+    'tsup.config.ts',
+    '.eslintrc.cjs',
   ],
 
   parserOptions: {
-    project: "./tsconfig.json",
+    project: './tsconfig.json',
   },
 
   rules: {
-    "@typescript-eslint/no-non-null-assertion": "off",
-    "one-var": ["warn", "never"],
-    "sort-imports": "warn",
+    '@typescript-eslint/no-non-null-assertion': 'off',
+    'one-var': ['warn', 'never'],
+    'sort-imports': 'warn',
   },
-};
+}

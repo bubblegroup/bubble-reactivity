@@ -6,364 +6,364 @@ import {
   flushSync,
   onCleanup,
   untrack,
-} from "../src";
+} from '../src'
 
-afterEach(() => flushSync());
+afterEach(() => flushSync())
 
-it("should run effect", () => {
-  const [$x, setX] = createSignal(0);
-  const effect = vi.fn(() => void $x());
+it('should run effect', () => {
+  const [$x, setX] = createSignal(0)
+  const effect = vi.fn(() => void $x())
 
-  createEffect(effect);
-  flushSync();
-  expect(effect).toHaveBeenCalledTimes(1);
+  createEffect(effect)
+  flushSync()
+  expect(effect).toHaveBeenCalledTimes(1)
 
-  setX(1);
-  flushSync();
-  expect(effect).toHaveBeenCalledTimes(2);
-});
+  setX(1)
+  flushSync()
+  expect(effect).toHaveBeenCalledTimes(2)
+})
 
-it("should run effect on change", () => {
-  const effect = vi.fn((n: number) => n);
+it('should run effect on change', () => {
+  const effect = vi.fn((n: number) => n)
 
-  const [$x, setX] = createSignal(10);
-  const [$y, setY] = createSignal(10);
+  const [$x, setX] = createSignal(10)
+  const [$y, setY] = createSignal(10)
 
-  const $a = createMemo(() => $x() + $y());
-  const $b = createMemo(() => $a());
+  const $a = createMemo(() => $x() + $y())
+  const $b = createMemo(() => $a())
 
-  createEffect(() => effect($b()));
-  flushSync();
+  createEffect(() => effect($b()))
+  flushSync()
 
-  expect(effect).to.toHaveBeenCalledTimes(1);
+  expect(effect).to.toHaveBeenCalledTimes(1)
 
-  setX(20);
-  flushSync();
-  expect(effect).to.toHaveBeenCalledTimes(2);
+  setX(20)
+  flushSync()
+  expect(effect).to.toHaveBeenCalledTimes(2)
 
-  setY(20);
-  flushSync();
-  expect(effect).to.toHaveBeenCalledTimes(3);
+  setY(20)
+  flushSync()
+  expect(effect).to.toHaveBeenCalledTimes(3)
 
-  setX(20);
-  setY(20);
-  flushSync();
-  expect(effect).to.toHaveBeenCalledTimes(3);
-});
+  setX(20)
+  setY(20)
+  flushSync()
+  expect(effect).to.toHaveBeenCalledTimes(3)
+})
 
-it("should handle nested effect", () => {
-  const [$x, setX] = createSignal(0);
-  const [$y, setY] = createSignal(0);
+it('should handle nested effect', () => {
+  const [$x, setX] = createSignal(0)
+  const [$y, setY] = createSignal(0)
 
-  const outerEffect = vi.fn();
-  const innerEffect = vi.fn();
-  const innerDispose = vi.fn();
+  const outerEffect = vi.fn()
+  const innerEffect = vi.fn()
+  const innerDispose = vi.fn()
 
   const stopEffect = createRoot((dispose) => {
     createEffect(() => {
-      $x();
-      outerEffect();
+      $x()
+      outerEffect()
       createEffect(() => {
-        $y();
-        innerEffect();
-        onCleanup(innerDispose);
-      });
-    });
+        $y()
+        innerEffect()
+        onCleanup(innerDispose)
+      })
+    })
 
-    return dispose;
-  });
+    return dispose
+  })
 
-  flushSync();
-  expect(outerEffect).toHaveBeenCalledTimes(1);
-  expect(innerEffect).toHaveBeenCalledTimes(1);
-  expect(innerDispose).toHaveBeenCalledTimes(0);
+  flushSync()
+  expect(outerEffect).toHaveBeenCalledTimes(1)
+  expect(innerEffect).toHaveBeenCalledTimes(1)
+  expect(innerDispose).toHaveBeenCalledTimes(0)
 
-  setY(1);
-  flushSync();
-  expect(outerEffect).toHaveBeenCalledTimes(1);
-  expect(innerEffect).toHaveBeenCalledTimes(2);
-  expect(innerDispose).toHaveBeenCalledTimes(1);
+  setY(1)
+  flushSync()
+  expect(outerEffect).toHaveBeenCalledTimes(1)
+  expect(innerEffect).toHaveBeenCalledTimes(2)
+  expect(innerDispose).toHaveBeenCalledTimes(1)
 
-  setY(2);
-  flushSync();
-  expect(outerEffect).toHaveBeenCalledTimes(1);
-  expect(innerEffect).toHaveBeenCalledTimes(3);
-  expect(innerDispose).toHaveBeenCalledTimes(2);
+  setY(2)
+  flushSync()
+  expect(outerEffect).toHaveBeenCalledTimes(1)
+  expect(innerEffect).toHaveBeenCalledTimes(3)
+  expect(innerDispose).toHaveBeenCalledTimes(2)
 
-  innerEffect.mockReset();
-  innerDispose.mockReset();
+  innerEffect.mockReset()
+  innerDispose.mockReset()
 
-  setX(1);
-  flushSync();
-  expect(outerEffect).toHaveBeenCalledTimes(2);
-  expect(innerEffect).toHaveBeenCalledTimes(1); // new one is created
-  expect(innerDispose).toHaveBeenCalledTimes(1);
+  setX(1)
+  flushSync()
+  expect(outerEffect).toHaveBeenCalledTimes(2)
+  expect(innerEffect).toHaveBeenCalledTimes(1) // new one is created
+  expect(innerDispose).toHaveBeenCalledTimes(1)
 
-  setY(3);
-  flushSync();
-  expect(outerEffect).toHaveBeenCalledTimes(2);
-  expect(innerEffect).toHaveBeenCalledTimes(2);
-  expect(innerDispose).toHaveBeenCalledTimes(2);
+  setY(3)
+  flushSync()
+  expect(outerEffect).toHaveBeenCalledTimes(2)
+  expect(innerEffect).toHaveBeenCalledTimes(2)
+  expect(innerDispose).toHaveBeenCalledTimes(2)
 
-  stopEffect();
-  setX(10);
-  setY(10);
-  expect(outerEffect).toHaveBeenCalledTimes(2);
-  expect(innerEffect).toHaveBeenCalledTimes(2);
-  expect(innerDispose).toHaveBeenCalledTimes(3);
-});
+  stopEffect()
+  setX(10)
+  setY(10)
+  expect(outerEffect).toHaveBeenCalledTimes(2)
+  expect(innerEffect).toHaveBeenCalledTimes(2)
+  expect(innerDispose).toHaveBeenCalledTimes(3)
+})
 
-it("should stop effect", () => {
-  const effect = vi.fn((n: number) => n);
+it('should stop effect', () => {
+  const effect = vi.fn((n: number) => n)
 
-  const [$x, setX] = createSignal(10);
+  const [$x, setX] = createSignal(10)
 
   const stopEffect = createRoot((dispose) => {
-    createEffect(() => effect($x()));
-    return dispose;
-  });
-  flushSync();
-  stopEffect();
+    createEffect(() => effect($x()))
+    return dispose
+  })
+  flushSync()
+  stopEffect()
 
-  setX(20);
-  flushSync();
-  expect(effect).toHaveBeenCalledTimes(1);
-});
+  setX(20)
+  flushSync()
+  expect(effect).toHaveBeenCalledTimes(1)
+})
 
-it("should run all disposals before each new run", () => {
-  const effect = vi.fn();
-  const disposeA = vi.fn();
-  const disposeB = vi.fn();
+it('should run all disposals before each new run', () => {
+  const effect = vi.fn()
+  const disposeA = vi.fn()
+  const disposeB = vi.fn()
 
   function fnA() {
-    onCleanup(disposeA);
+    onCleanup(disposeA)
   }
 
   function fnB() {
-    onCleanup(disposeB);
+    onCleanup(disposeB)
   }
 
-  const [$x, setX] = createSignal(0);
+  const [$x, setX] = createSignal(0)
 
   createEffect(() => {
-    effect();
-    fnA(), fnB(), $x();
-  });
-  flushSync();
-  expect(effect).toHaveBeenCalledTimes(1);
-  expect(disposeA).toHaveBeenCalledTimes(0);
-  expect(disposeB).toHaveBeenCalledTimes(0);
+    effect()
+    fnA(), fnB(), $x()
+  })
+  flushSync()
+  expect(effect).toHaveBeenCalledTimes(1)
+  expect(disposeA).toHaveBeenCalledTimes(0)
+  expect(disposeB).toHaveBeenCalledTimes(0)
 
   for (let i = 1; i <= 3; i += 1) {
-    setX(i);
-    flushSync();
-    expect(effect).toHaveBeenCalledTimes(i + 1);
-    expect(disposeA).toHaveBeenCalledTimes(i);
-    expect(disposeB).toHaveBeenCalledTimes(i);
+    setX(i)
+    flushSync()
+    expect(effect).toHaveBeenCalledTimes(i + 1)
+    expect(disposeA).toHaveBeenCalledTimes(i)
+    expect(disposeB).toHaveBeenCalledTimes(i)
   }
-});
+})
 
-it("should dispose of nested effect", () => {
-  const [$x, setX] = createSignal(0);
-  const innerEffect = vi.fn();
+it('should dispose of nested effect', () => {
+  const [$x, setX] = createSignal(0)
+  const innerEffect = vi.fn()
 
   const stopEffect = createRoot((dispose) => {
     createEffect(() => {
       createEffect(() => {
-        innerEffect($x());
-      });
-    });
+        innerEffect($x())
+      })
+    })
 
-    return dispose;
-  });
+    return dispose
+  })
 
-  flushSync();
-  stopEffect();
+  flushSync()
+  stopEffect()
 
-  setX(10);
-  flushSync();
-  expect(innerEffect).toHaveBeenCalledTimes(1);
-  expect(innerEffect).not.toHaveBeenCalledWith(10);
-});
+  setX(10)
+  flushSync()
+  expect(innerEffect).toHaveBeenCalledTimes(1)
+  expect(innerEffect).not.toHaveBeenCalledWith(10)
+})
 
-it("should conditionally observe", () => {
-  const [$x, setX] = createSignal(0);
-  const [$y, setY] = createSignal(0);
-  const [$condition, setCondition] = createSignal(true);
+it('should conditionally observe', () => {
+  const [$x, setX] = createSignal(0)
+  const [$y, setY] = createSignal(0)
+  const [$condition, setCondition] = createSignal(true)
 
-  const $a = createMemo(() => ($condition() ? $x() : $y()));
-  const effect = vi.fn((n: number) => n);
+  const $a = createMemo(() => ($condition() ? $x() : $y()))
+  const effect = vi.fn((n: number) => n)
 
-  createEffect(() => effect($a()));
+  createEffect(() => effect($a()))
 
-  flushSync();
-  expect(effect).toHaveBeenCalledTimes(1);
+  flushSync()
+  expect(effect).toHaveBeenCalledTimes(1)
 
-  setY(1);
-  flushSync();
-  expect(effect).toHaveBeenCalledTimes(1);
+  setY(1)
+  flushSync()
+  expect(effect).toHaveBeenCalledTimes(1)
 
-  setX(1);
-  flushSync();
-  expect(effect).toHaveBeenCalledTimes(2);
+  setX(1)
+  flushSync()
+  expect(effect).toHaveBeenCalledTimes(2)
 
-  setCondition(false);
-  flushSync();
-  expect(effect).toHaveBeenCalledTimes(2);
+  setCondition(false)
+  flushSync()
+  expect(effect).toHaveBeenCalledTimes(2)
 
-  setY(2);
-  flushSync();
-  expect(effect).toHaveBeenCalledTimes(3);
+  setY(2)
+  flushSync()
+  expect(effect).toHaveBeenCalledTimes(3)
 
-  setX(3);
-  flushSync();
-  expect(effect).toHaveBeenCalledTimes(3);
-});
+  setX(3)
+  flushSync()
+  expect(effect).toHaveBeenCalledTimes(3)
+})
 
-it("should dispose of nested conditional effect", () => {
-  const [$condition, setCondition] = createSignal(true);
+it('should dispose of nested conditional effect', () => {
+  const [$condition, setCondition] = createSignal(true)
 
-  const disposeA = vi.fn();
-  const disposeB = vi.fn();
+  const disposeA = vi.fn()
+  const disposeB = vi.fn()
 
   function fnA() {
     createEffect(() => {
-      onCleanup(disposeA);
-    });
+      onCleanup(disposeA)
+    })
   }
 
   function fnB() {
     createEffect(() => {
-      onCleanup(disposeB);
-    });
+      onCleanup(disposeB)
+    })
   }
 
-  createEffect(() => ($condition() ? fnA() : fnB()));
+  createEffect(() => ($condition() ? fnA() : fnB()))
 
-  flushSync();
-  setCondition(false);
-  flushSync();
-  expect(disposeA).toHaveBeenCalledTimes(1);
-});
+  flushSync()
+  setCondition(false)
+  flushSync()
+  expect(disposeA).toHaveBeenCalledTimes(1)
+})
 
 // https://github.com/preactjs/signals/issues/152
-it("should handle looped effects", () => {
-  let values: number[] = [];
-  let loop = 2;
+it('should handle looped effects', () => {
+  let values: number[] = []
+  let loop = 2
 
-  const [$value, setValue] = createSignal(0);
+  const [$value, setValue] = createSignal(0)
 
   createEffect(() => {
-    values.push($value());
+    values.push($value())
     for (let i = 0; i < loop; i++) {
       createEffect(() => {
-        values.push($value() + i);
-      });
+        values.push($value() + i)
+      })
     }
-  });
+  })
 
-  flushSync();
+  flushSync()
 
-  expect(values).toHaveLength(3);
-  expect(values.join(",")).toBe("0,0,1");
+  expect(values).toHaveLength(3)
+  expect(values.join(',')).toBe('0,0,1')
 
-  loop = 1;
-  values = [];
-  setValue(1);
-  flushSync();
+  loop = 1
+  values = []
+  setValue(1)
+  flushSync()
 
-  expect(values).toHaveLength(2);
-  expect(values.join(",")).toBe("1,1");
+  expect(values).toHaveLength(2)
+  expect(values.join(',')).toBe('1,1')
 
-  values = [];
-  setValue(2);
-  flushSync();
+  values = []
+  setValue(2)
+  flushSync()
 
-  expect(values).toHaveLength(2);
-  expect(values.join(",")).toBe("2,2");
-});
+  expect(values).toHaveLength(2)
+  expect(values.join(',')).toBe('2,2')
+})
 
-it("should apply changes in effect in same flush", async () => {
-  const [$x, setX] = createSignal(0);
-  const [$y, setY] = createSignal(0);
+it('should apply changes in effect in same flush', async () => {
+  const [$x, setX] = createSignal(0)
+  const [$y, setY] = createSignal(0)
 
   const $a = createMemo(() => {
-    return $x() + 1;
-  });
+    return $x() + 1
+  })
   const $b = createMemo(() => {
-    return $a() + 2;
-  });
+    return $a() + 2
+  })
 
   createEffect(() => {
-    setX(untrack(() => $x()) + 1);
-    $y();
-  });
+    setX(untrack(() => $x()) + 1)
+    $y()
+  })
 
-  flushSync();
-  expect($x()).toBe(1);
-  expect($b()).toBe(4);
-  expect($a()).toBe(2);
+  flushSync()
+  expect($x()).toBe(1)
+  expect($b()).toBe(4)
+  expect($a()).toBe(2)
 
-  setY(1);
+  setY(1)
 
-  await Promise.resolve();
+  await Promise.resolve()
 
-  expect($x()).toBe(2);
-  expect($b()).toBe(5);
-  expect($a()).toBe(3);
+  expect($x()).toBe(2)
+  expect($b()).toBe(5)
+  expect($a()).toBe(3)
 
-  setY(2);
+  setY(2)
 
-  await Promise.resolve();
+  await Promise.resolve()
 
-  expect($x()).toBe(3);
-  expect($b()).toBe(6);
-  expect($a()).toBe(4);
-});
+  expect($x()).toBe(3)
+  expect($b()).toBe(6)
+  expect($a()).toBe(4)
+})
 
-it("should run parent effect before child effect", () => {
-  const [$x, setX] = createSignal(0);
-  const $condition = createMemo(() => $x());
+it('should run parent effect before child effect', () => {
+  const [$x, setX] = createSignal(0)
+  const $condition = createMemo(() => $x())
 
-  let calls = 0;
+  let calls = 0
 
   createEffect(() => {
     createEffect(() => {
-      $x();
-      calls++;
-    });
+      $x()
+      calls++
+    })
 
-    $condition();
-  });
+    $condition()
+  })
 
-  flushSync();
-  setX(1);
-  flushSync();
-  expect(calls).toBe(2);
-});
+  flushSync()
+  setX(1)
+  flushSync()
+  expect(calls).toBe(2)
+})
 
 // TODO: right now if a memo contains an effect, it will only be eagerly evaluated when it is used
 // or when an effect depends on it. Instead, we should make sure that any memos that contain effects
 // as descendants are eagerly evaluated. (We should probably do this through necessitation, by
 // linking and unlinking nodes)
-it("should run parent memo before child effect", () => {
-  const [$x, setX] = createSignal(0);
-  const $condition = createMemo(() => $x());
+it('should run parent memo before child effect', () => {
+  const [$x, setX] = createSignal(0)
+  const $condition = createMemo(() => $x())
 
-  let calls = 0;
+  let calls = 0
 
   const m = createMemo(() => {
     createEffect(() => {
-      $x();
-      calls++;
-    });
+      $x()
+      calls++
+    })
 
-    $condition();
-  });
+    $condition()
+  })
 
-  m();
-  flushSync();
-  setX(1);
-  flushSync();
-  expect(calls).toBe(2);
-});
+  m()
+  flushSync()
+  setX(1)
+  flushSync()
+  expect(calls).toBe(2)
+})

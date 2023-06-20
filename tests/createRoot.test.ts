@@ -8,110 +8,110 @@ import {
   flushSync,
   getOwner,
   onCleanup,
-} from "../src";
-import { Computation } from "../src/core";
+} from '../src'
+import { Computation } from '../src/core'
 
-afterEach(() => flushSync());
+afterEach(() => flushSync())
 
-it("should dispose of inner computations", () => {
-  let $x: Signal<number>;
-  let $y: Accessor<number>;
+it('should dispose of inner computations', () => {
+  let $x: Signal<number>
+  let $y: Accessor<number>
 
-  const memo = vi.fn(() => $x[0]() + 10);
+  const memo = vi.fn(() => $x[0]() + 10)
 
   createRoot((dispose) => {
-    $x = createSignal(10);
-    $y = createMemo(memo);
-    expect($y()).toBe(20);
-    dispose();
-  });
+    $x = createSignal(10)
+    $y = createMemo(memo)
+    expect($y()).toBe(20)
+    dispose()
+  })
 
-  expect(() => $y!()).toThrow();
-  expect(memo).toHaveBeenCalledTimes(1);
+  expect(() => $y!()).toThrow()
+  expect(memo).toHaveBeenCalledTimes(1)
 
-  flushSync();
+  flushSync()
 
-  $x![1](50);
-  flushSync();
+  $x![1](50)
+  flushSync()
 
-  expect(() => $y!()).toThrow();
-  expect(memo).toHaveBeenCalledTimes(1);
-});
+  expect(() => $y!()).toThrow()
+  expect(memo).toHaveBeenCalledTimes(1)
+})
 
-it("should return result", () => {
+it('should return result', () => {
   const result = createRoot((dispose) => {
-    dispose();
-    return 10;
-  });
+    dispose()
+    return 10
+  })
 
-  expect(result).toBe(10);
-});
+  expect(result).toBe(10)
+})
 
-it("should create new tracking scope", () => {
-  const [$x, setX] = createSignal(0);
-  const effect = vi.fn((n: number) => n);
+it('should create new tracking scope', () => {
+  const [$x, setX] = createSignal(0)
+  const effect = vi.fn((n: number) => n)
 
   const stopEffect = createRoot((dispose) => {
     createEffect(() => {
-      $x();
-      createRoot(() => void createEffect(() => effect($x())));
-    });
+      $x()
+      createRoot(() => void createEffect(() => effect($x())))
+    })
 
-    return dispose;
-  });
+    return dispose
+  })
 
-  flushSync();
-  expect(effect).toHaveBeenCalledWith(0);
-  expect(effect).toHaveBeenCalledTimes(1);
+  flushSync()
+  expect(effect).toHaveBeenCalledWith(0)
+  expect(effect).toHaveBeenCalledTimes(1)
 
-  stopEffect();
+  stopEffect()
 
-  setX(10);
-  flushSync();
-  expect(effect).not.toHaveBeenCalledWith(10);
-  expect(effect).toHaveBeenCalledTimes(1);
-});
+  setX(10)
+  flushSync()
+  expect(effect).not.toHaveBeenCalledWith(10)
+  expect(effect).toHaveBeenCalledTimes(1)
+})
 
-it("should not be reactive", () => {
-  let $x: Signal<number>;
+it('should not be reactive', () => {
+  let $x: Signal<number>
 
-  const root = vi.fn();
+  const root = vi.fn()
 
   createRoot(() => {
-    $x = createSignal(0);
-    $x[0]();
-    root();
-  });
+    $x = createSignal(0)
+    $x[0]()
+    root()
+  })
 
-  expect(root).toHaveBeenCalledTimes(1);
+  expect(root).toHaveBeenCalledTimes(1)
 
-  $x![1](1);
-  flushSync();
-  expect(root).toHaveBeenCalledTimes(1);
-});
+  $x![1](1)
+  flushSync()
+  expect(root).toHaveBeenCalledTimes(1)
+})
 
-it("should hold parent tracking", () => {
+it('should hold parent tracking', () => {
   createRoot(() => {
-    const parent = getOwner();
+    const parent = getOwner()
     createRoot(() => {
-      expect(getOwner()!._parent).toBe(parent);
-    });
-  });
-});
+      expect(getOwner()!._parent).toBe(parent)
+    })
+  })
+})
 
-it("should not observe", () => {
-  const [$x] = createSignal(0);
+it('should not observe', () => {
+  const [$x] = createSignal(0)
   createRoot(() => {
-    $x();
-    const owner = getOwner() as Computation;
-    expect(owner._sources).toBeUndefined();
-    expect(owner._observers).toBeUndefined();
-  });
-});
+    $x()
+    const owner = getOwner() as Computation
+    expect(owner._sources).toBeUndefined()
+    expect(owner._observers).toBeUndefined()
+  })
+})
 
-it("should not throw if dispose called during active disposal process", () => {
+it('should not throw if dispose called during active disposal process', () => {
   createRoot((dispose) => {
-    onCleanup(() => dispose());
-    dispose();
-  });
-});
+    onCleanup(() => dispose())
+    dispose()
+  })
+})

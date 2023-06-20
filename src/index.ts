@@ -1,11 +1,11 @@
-import { Computation, compute } from "./core";
-import { HANDLER, Owner, handleError } from "./owner";
-import type { MemoOptions, SignalOptions } from "./core";
-import { Effect } from "./effect";
+import { Computation, compute } from './core'
+import { HANDLER, Owner, handleError } from './owner'
+import type { MemoOptions, SignalOptions } from './core'
+import { Effect } from './effect'
 
-export type Accessor<T> = () => T;
-export type Setter<T> = (value: T) => T;
-export type Signal<T> = [read: Accessor<T>, write: Setter<T>];
+export type Accessor<T> = () => T
+export type Setter<T> = (value: T) => T
+export type Signal<T> = [read: Accessor<T>, write: Setter<T>]
 
 /**
  * Wraps the given value into a signal. The signal will return the current value when invoked
@@ -16,8 +16,8 @@ export function createSignal<T>(
   initialValue: T,
   options?: SignalOptions<T>
 ): Signal<T> {
-  const node = new Computation(initialValue, null, options);
-  return [() => node.read(), (v) => node.write(v)];
+  const node = new Computation(initialValue, null, options)
+  return [() => node.read(), (v) => node.write(v)]
 }
 
 /**
@@ -30,8 +30,8 @@ export function createMemo<T>(
   initialValue?: T,
   options?: MemoOptions<T>
 ): Accessor<T> {
-  const node = new Computation(initialValue, compute, options);
-  return () => node.read();
+  const node = new Computation(initialValue, compute, options)
+  return () => node.read()
 }
 
 /**
@@ -46,8 +46,8 @@ export function createEffect<T>(
   void new Effect(
     initialValue,
     effect,
-    __DEV__ ? { name: options?.name ?? "effect" } : undefined
-  );
+    __DEV__ ? { name: options?.name ?? 'effect' } : undefined
+  )
 }
 
 /**
@@ -57,12 +57,12 @@ export function createEffect<T>(
 export function createRoot<T>(
   init: ((dispose: () => void) => T) | (() => T)
 ): T {
-  const owner = new Owner();
+  const owner = new Owner()
   return compute(
     owner,
     !init.length ? (init as () => T) : () => init(() => owner.dispose()),
     null
-  );
+  )
 }
 
 /**
@@ -75,10 +75,10 @@ export function runWithOwner<T>(
   run: () => T
 ): T | undefined {
   try {
-    return compute(owner, run, null);
+    return compute(owner, run, null)
   } catch (error) {
-    handleError(owner, error);
-    return undefined;
+    handleError(owner, error)
+    return undefined
   }
 }
 
@@ -90,15 +90,15 @@ export function catchError<T, U = Error>(
   fn: () => T,
   handler: (error: U) => void
 ): void {
-  const owner = new Owner();
-  owner._context = { [HANDLER]: handler };
+  const owner = new Owner()
+  owner._context = { [HANDLER]: handler }
   try {
-    compute(owner, fn, null);
+    compute(owner, fn, null)
   } catch (error) {
-    handleError(owner, error);
+    handleError(owner, error)
   }
 }
 
-export { untrack } from "./core";
-export { onCleanup, getOwner } from "./owner";
-export { flushSync } from "./effect";
+export { untrack } from './core'
+export { onCleanup, getOwner } from './owner'
+export { flushSync } from './effect'
