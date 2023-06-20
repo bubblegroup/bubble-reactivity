@@ -26,6 +26,7 @@
     "@vitest/coverage-c8": "^0.31.1",
     "eslint": "^8.41.0",
     "eslint-config-prettier": "^8.8.0",
+    "eslint-plugin-simple-import-sort": "^10.0.0",
     "prettier": "^2.8.8",
     "rimraf": "^5.0.1",
     "tsup": "^6.7.0",

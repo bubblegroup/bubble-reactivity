@@ -7,7 +7,7 @@ module.exports = {
   ],
 
   parser: '@typescript-eslint/parser',
-  plugins: ['@typescript-eslint'],
+  plugins: ['@typescript-eslint', 'simple-import-sort'],
 
   ignorePatterns: [
     'dist',
@@ -25,6 +25,8 @@ module.exports = {
   rules: {
     '@typescript-eslint/no-non-null-assertion': 'off',
     'one-var': ['warn', 'never'],
-    'sort-imports': 'warn',
+    'sort-imports': 'off',
+    'simple-import-sort/imports': 'error',
+    'simple-import-sort/exports': 'error',
   },
 }
