@@ -8,12 +8,4 @@ export const LOADING_OFFSET = 1
 export const LOADING_BIT = 1 << LOADING_OFFSET
 export const LOADING: unique symbol = Symbol('LOADING')
 
-const symbolOffsets = {
-  [ERROR]: ERROR_OFFSET,
-  [LOADING]: LOADING_OFFSET,
-}
-
-const symbolBits = {
-  [ERROR]: ERROR_BIT,
-  [LOADING]: LOADING_BIT,
-}
+export const DEFAULT_FLAGS = ERROR_BIT

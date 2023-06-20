@@ -1,9 +1,4 @@
-import {
-  _createAsync,
-  _createPromise,
-  createEffect,
-  flushSync,
-} from '../src'
+import { _createAsync, _createPromise, createEffect, flushSync } from '../src'
 import { Computation } from '../src/core'
 import { Effect } from '../src/effect'
 

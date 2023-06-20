@@ -27,7 +27,6 @@
  *     (the computations are executed in root to leaf order)
  */
 
-import { Owner, getOwner, setCurrentOwner } from './owner'
 import {
   STATE_CHECK,
   STATE_CLEAN,
@@ -36,6 +35,7 @@ import {
 } from './constants'
 import { NotReadyError } from './error'
 import { DEFAULT_FLAGS, ERROR_BIT, Flags, LOADING_BIT } from './flags'
+import { getOwner, Owner, setCurrentOwner } from './owner'
 
 export interface SignalOptions<T> {
   name?: string
@@ -48,6 +48,7 @@ export interface MemoOptions<T> extends SignalOptions<T> {
 
 interface SourceType {
   _observers: ObserverType[] | null
+  _stateFlags: Flags
   _updateIfNecessary: () => void
 
   // Needed to lazily update to not loading
@@ -62,7 +63,7 @@ interface ObserverType {
 
   // Needed to eagerly tell observers that their sources are currently loading
   // (and thus they are too)
-  _setIsWaiting: (loading: boolean) => void
+  _notifyFlags: (mask: Flags, newFlags: Flags) => void
 }
 
 let currentObserver: ObserverType | null = null
@@ -98,8 +99,8 @@ export class Computation<T = any>
   /** Which flags raised by sources are handled, vs. being passed through. */
   _handlerMask = DEFAULT_FLAGS
 
-  _error: ErrorState<T> | null = null
-  _loading: LoadingState<T> | null = null
+  _error: Computation<boolean> | null = null
+  _loading: Computation<boolean> | null = null
 
   constructor(
     initialValue: T | undefined,
@@ -171,11 +172,9 @@ export class Computation<T = any>
    */
   loading(): boolean {
     if (this._loading === null) {
-      this._loading = new LoadingState(this)
+      this._loading = loadingState(this)
     }
-    if (this._compute) this._updateIfNecessary()
-    track(this._loading)
-    return this._isLoading()
+    return this._loading.read()
   }
 
   /**
@@ -184,51 +183,34 @@ export class Computation<T = any>
    */
   error(): boolean {
     if (this._error === null) {
-      this._error = new ErrorState(this)
+      this._error = errorState(this)
     }
-    this._updateIfNecessary()
-    track(this._error)
-    return (this._stateFlags & ERROR_BIT) !== 0
+    return this._error.read()
   }
 
   /** Update the computation with a new value. */
-  write(value: T | UNCHANGED, flags: number = this._stateFlags): T {
+  write(value: T | UNCHANGED, flags = 0): T {
     const valueChanged =
       value !== UNCHANGED &&
-      ((flags & ERROR_BIT) === 1 ||
+      (!!(flags & ERROR_BIT) ||
         this._equals === false ||
         !this._equals(this._value!, value))
-    const flagDifference = this._stateFlags ^ flags
-
-    const errorChanged = flagDifference & ERROR_BIT
-    const loadingChanged = flagDifference & LOADING_BIT
 
     if (valueChanged) this._value = value
 
-    // We are about to change the async state to false, and we want to notify _loading observers
-    // if the loading state changes. If an ancestor is already unresolved then us becoming
-    // unresolved will not change the overall loading state. Otherwise, we need to
-    // notify _loading observers that the loading state has changed
-    if (loadingChanged) this._loading?.set(false)
-
-    // If we were in an error state, then our error state is changing and we need to notify
-    // _error observers that the error state has changed
-    if (errorChanged) {
-      this._error?._notify(STATE_DIRTY)
-    }
-
-    this._stateFlags ^= flagDifference
+    const changedFlagsMask = this._stateFlags ^ flags
+    const changedFlags = changedFlagsMask & flags
+    this._stateFlags = flags
 
     // Our value has changed, so we need to notify all of our observers that the value has
     // changed and so they must rerun
-    if ((valueChanged || loadingChanged || errorChanged) && this._observers) {
+    if (this._observers) {
       for (let i = 0; i < this._observers.length; i++) {
-        // If the value or error changed, we know downstream computations must rerun
-        // If only the loading state changed, then we only need to check downstream computations
-        // because updateIfNecessary will update their loading states
-        this._observers[i]._notify(
-          valueChanged || errorChanged ? STATE_DIRTY : STATE_CHECK
-        )
+        if (valueChanged) {
+          this._observers[i]._notify(STATE_DIRTY)
+        } else if (changedFlagsMask) {
+          this._observers[i]._notifyFlags(changedFlagsMask, changedFlags)
+        }
       }
     }
 
@@ -253,20 +235,48 @@ export class Computation<T = any>
         this._observers[i]._notify(STATE_CHECK)
       }
     }
-
-    this._loading?._notify(STATE_CHECK)
-    this._error?._notify(STATE_CHECK)
   }
 
   /**
-   * Change the waiting state of the computation, notifying observers if the computation switches
-   * to or from a loading state
+   * Notify the computation that one of its sources has changed flags.
+   *
+   * @param mask A bitmask for which flag(s) were changed.
+   * @param newFlags The source's new flags, masked to just the changed ones.
    */
-  _setIsWaiting(waiting: boolean): void {
-    const newFlags = waiting
-      ? this._stateFlags | LOADING_BIT
-      : this._stateFlags & ~LOADING_BIT
-    this.write(UNCHANGED, newFlags)
+  _notifyFlags(mask: Flags, newFlags: Flags): void {
+    // If we're dirty, none of the things we do can matter.
+    if (this._state >= STATE_DIRTY) return
+
+    // If the changed flags have side effects attached, we have to re-run.
+    if (mask & this._handlerMask) {
+      this._notify(STATE_DIRTY)
+      return
+    }
+
+    // If we're already check, we can delay this propagation until we check.
+    if (this._state >= STATE_CHECK) return
+
+    // If we're clean, and none of these flags have a handler, we can try to
+    // propagate them.
+    const prevFlags = this._stateFlags & mask
+    const deltaFlags = prevFlags ^ newFlags
+
+    if (newFlags === prevFlags) {
+      // No work to do if the flags are unchanged.
+    } else if (deltaFlags & prevFlags & mask) {
+      // One of the changed flags was previously _on_, so we can't eagerly
+      // propagate anything; we'll wait until we're checked.
+      this._notify(STATE_CHECK)
+    } else {
+      // The changed flags were previously _off_, which means we can remain
+      // clean with updated flags and pass this notification on transitively.
+      this._stateFlags ^= deltaFlags
+      if (this._observers) {
+        for (let i = 0; i < this._observers.length; i++) {
+          this._observers[i]._notifyFlags(mask, newFlags)
+        }
+      }
+    }
   }
 
   _setError(error: unknown): void {
@@ -302,7 +312,7 @@ export class Computation<T = any>
     // We keep track of whether any of our sources have changed loading state so that we can update
     // our loading state. This is only necessary if none of them change value because update() will
     // also cause us to recompute our loading state.
-    let isWaiting = false
+    let observerFlags: Flags = 0
 
     // STATE_CHECK means one of our grandparent sources may have changed value or loading state,
     // so we need to recursively call _updateIfNecessary to update the state of all of our sources
@@ -314,9 +324,7 @@ export class Computation<T = any>
         this._sources![i]._updateIfNecessary()
 
         // If the parent is loading, then we are waiting
-        if (this._sources![i]._isLoading()) {
-          isWaiting = true
-        }
+        observerFlags |= this._sources![i]._stateFlags
 
         // If the parent changed value, it will mark us as STATE_DIRTY and we need to call update()
         // Cast because the _updateIfNecessary call above can change our state
@@ -333,7 +341,7 @@ export class Computation<T = any>
       update(this)
     } else {
       // isWaiting has now coallesced all of our parents' loading states
-      this._setIsWaiting(isWaiting)
+      this.write(UNCHANGED, observerFlags)
 
       // None of our parents changed value, so our value is up to date (STATE_CLEAN)
       this._state = STATE_CLEAN
@@ -361,82 +369,44 @@ export class Computation<T = any>
   }
 }
 
-/**
- * We attach a LoadingState node to each Computation node to track async sources
- * When a Computation node reads a LoadingState node, it adds the LoadingState node to its sources.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-class LoadingState<T = any> implements SourceType {
-  _observers: ObserverType[] | null
-  _origin: Computation<T>
+function loadingState(node: Computation): Computation<boolean> {
+  const prevOwner = setCurrentOwner(node._parent)
+  const options = __DEV__
+    ? { name: node._name ? `loading ${node._name}` : 'loading' }
+    : undefined
 
-  constructor(origin: Computation<T>) {
-    this._origin = origin
-    this._observers = null
-  }
-
-  _updateIfNecessary(): void {
-    // When a computation reads .loading() and tracks this LoadingState, they read _origin.isLoading
-    // The reading computation node  will track this LoadingState instance as they would track any
-    // other computation. To make sure that _origin.isLoading up to date, we call _updateIfNecessary
-    this._origin._updateIfNecessary()
-  }
-
-  _isLoading(): boolean {
-    return false
-  }
-
-  /** Notify observers and downstream computation states that the loading state has changed */
-  set(value: boolean): void {
-    if (this._origin._observers) {
-      for (let i = 0; i < this._origin._observers.length; i++) {
-        if (value) {
-          // Eagerly update all computations because only the loading state could have changed
-          this._origin._observers[i]._setIsWaiting(true)
-        } else {
-          // Lazily update computations (because we don't know whether the value has changed)
-          this._origin._observers[i]._notify(STATE_CHECK)
-        }
-      }
-    }
-    this._notify(STATE_DIRTY)
-  }
-
-  /** Notify computations that observe this loading state directly that it has updated */
-  _notify(state: number): void {
-    if (this._observers) {
-      for (let i = 0; i < this._observers.length; i++) {
-        this._observers[i]._notify(state)
-      }
-    }
-  }
+  const s = new Computation(
+    undefined,
+    () => {
+      track(node)
+      node._updateIfNecessary()
+      return !!(node._stateFlags & LOADING_BIT)
+    },
+    options
+  )
+  s._handlerMask = ERROR_BIT | LOADING_BIT
+  setCurrentOwner(prevOwner)
+  return s
 }
 
-class ErrorState<T> implements SourceType {
-  _observers: ObserverType[] | null
-  _origin: Computation<T>
+function errorState(node: Computation): Computation<boolean> {
+  const prevOwner = setCurrentOwner(node._parent)
+  const options = __DEV__
+    ? { name: node._name ? `error ${node._name}` : 'error' }
+    : undefined
 
-  constructor(origin: Computation<T>) {
-    this._origin = origin
-    this._observers = null
-  }
-
-  _updateIfNecessary(): void {
-    this._origin._updateIfNecessary()
-  }
-
-  _isLoading(): boolean {
-    return this._origin._isLoading()
-  }
-
-  /** Notify downstream computation states that the error state has changed */
-  _notify(state: number): void {
-    if (this._observers) {
-      for (let i = 0; i < this._observers.length; i++) {
-        this._observers[i]._notify(state)
-      }
-    }
-  }
+  const s = new Computation(
+    undefined,
+    () => {
+      track(node)
+      node._updateIfNecessary()
+      return !!(node._stateFlags & ERROR_BIT)
+    },
+    options
+  )
+  s._handlerMask = ERROR_BIT
+  setCurrentOwner(prevOwner)
+  return s
 }
 
 /**
