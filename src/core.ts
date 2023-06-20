@@ -73,6 +73,9 @@ const ERROR_BIT = 1
 /** Computation's ancestors have a unresolved promise */
 const WAITING_BIT = 2
 
+export const UNCHANGED: unique symbol = Symbol('unchanged')
+export type UNCHANGED = typeof UNCHANGED
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export class Computation<T = any>
   extends Owner
@@ -81,7 +84,7 @@ export class Computation<T = any>
   _sources: SourceType[] | null = null
   _observers: ObserverType[] | null = null
   _value: T | undefined
-  _compute: null | (() => T | Promise<T>)
+  _compute: null | (() => T)
 
   // Used in __DEV__ mode, hopefully removed in production
   _name: string | undefined
@@ -94,12 +97,10 @@ export class Computation<T = any>
   _stateFlags = 0
   _error: ErrorState<T> | null = null
   _loading: LoadingState<T> | null = null
-  /** current pending promise */
-  _promise: Promise<T> | null = null
 
   constructor(
-    initialValue: T | Promise<T> | undefined,
-    compute: null | (() => T | Promise<T>),
+    initialValue: T | undefined,
+    compute: null | (() => T),
     options?: MemoOptions<T>
   ) {
     // Initialize self as a node in the Owner tree, for tracking cleanups.
@@ -110,35 +111,7 @@ export class Computation<T = any>
     this._compute = compute
 
     this._state = compute ? STATE_DIRTY : STATE_CLEAN
-
-    // If the initial value passed in is a promise, we need to track it
-    if (isPromise(initialValue)) {
-      // Early reads to this computation will return this value (undefined).
-      // If that behavior is not desired, the user should call .wait() on the computation
-      // to wait for the promise to resolve
-      this._value = undefined
-
-      // Keep track of the latest promise, that way if a new promise is written
-      // before the first one resolves, we can ignore the first one
-      this._promise = initialValue
-
-      // When the promise resolves, we need to update our value
-      initialValue.then(
-        (value) => {
-          // Writing a new value (that is not a promise) will automatically
-          // update the state to "no longer loading"
-          if (this._promise === initialValue) this.write(value)
-        },
-        (e) => {
-          // When the promise errors, we need to set an error state so that future reads of this
-          // computation will re-throw the error (until a new value is written/recomputed)
-          if (this._promise === initialValue) this._setError(e)
-        }
-      )
-    } else {
-      // If the initial value is not a promise, we just set it directly
-      this._value = initialValue
-    }
+    this._value = initialValue
 
     // Used when debugging the graph; it is often helpful to know the names of sources/observers
     if (__DEV__)
@@ -170,8 +143,6 @@ export class Computation<T = any>
   /**
    * Return the current value of this computation
    * Automatically re-executes the surrounding computation when the value changes
-   *
-   * If the computation is currently a pending promise, this will return the previous/inital value
    */
   read(): T {
     return this._read(false)
@@ -217,60 +188,44 @@ export class Computation<T = any>
     return (this._stateFlags & ERROR_BIT) !== 0
   }
 
-  /** Update the computation with a new value or promise */
-  write(value: T | Promise<T>): T {
-    if (isPromise(value)) {
-      // We are about to change the async state to true, and we want to notify _loading observers
-      // if the loading state changes. Thus, we just need to check if the current state is not
-      // loading, then we are guaranteed to change
-      if (!this._isLoading()) this._loading?.set(true)
+  /** Update the computation with a new value. */
+  write(value: T | UNCHANGED, flags: number = this._stateFlags): T {
+    const valueChanged =
+      value !== UNCHANGED &&
+      ((flags & ERROR_BIT) === 1 ||
+        this._equals === false ||
+        !this._equals(this._value!, value))
+    const flagDifference = this._stateFlags ^ flags
 
-      // Update the latest promise, that way any old promises that resolve will be ignored
-      this._promise = value
+    const errorChanged = flagDifference & ERROR_BIT
+    const loadingChanged = flagDifference & WAITING_BIT
 
-      // When the promise resolves, we need to update our value (or error if the promise rejects)
-      value.then(
-        (v) => {
-          if (this._promise === value) this.write(v)
-        },
-        (e) => {
-          if (this._promise === value) this._setError(e)
-        }
-      )
-    } else {
-      const valueChanged =
-        this._equals === false || !this._equals(this._value!, value)
+    if (valueChanged) this._value = value
 
-      if (valueChanged) this._value = value
+    // We are about to change the async state to false, and we want to notify _loading observers
+    // if the loading state changes. If an ancestor is already unresolved then us becoming
+    // unresolved will not change the overall loading state. Otherwise, we need to
+    // notify _loading observers that the loading state has changed
+    if (loadingChanged) this._loading?.set(false)
 
-      // We are about to change the async state to false, and we want to notify _loading observers
-      // if the loading state changes. If an ancestor is already unresolved then us becoming
-      // unresolved will not change the overall loading state. Otherwise, we need to
-      // notify _loading observers that the loading state has changed
-      const loadingChanged =
-        (this._stateFlags & WAITING_BIT) === 0 && this._promise !== null
-      if (loadingChanged) this._loading?.set(false)
-      this._promise = null
+    // If we were in an error state, then our error state is changing and we need to notify
+    // _error observers that the error state has changed
+    if (errorChanged) {
+      this._error?._notify(STATE_DIRTY)
+    }
 
-      // If we were in an error state, then our error state is changing and we need to notify
-      // _error observers that the error state has changed
-      const errorChanged = (this._stateFlags & ERROR_BIT) !== 0
-      if (errorChanged) {
-        this._error?._notify(STATE_DIRTY)
-        this._stateFlags &= ~ERROR_BIT
-      }
+    this._stateFlags ^= flagDifference
 
-      // Our value has changed, so we need to notify all of our observers that the value has
-      // changed and so they must rerun
-      if ((valueChanged || loadingChanged || errorChanged) && this._observers) {
-        for (let i = 0; i < this._observers.length; i++) {
-          // If the value or error changed, we know downstream computations must rerun
-          // If only the loading state changed, then we only need to check downstream computations
-          // because updateIfNecessary will update their loading states
-          this._observers[i]._notify(
-            valueChanged || errorChanged ? STATE_DIRTY : STATE_CHECK
-          )
-        }
+    // Our value has changed, so we need to notify all of our observers that the value has
+    // changed and so they must rerun
+    if ((valueChanged || loadingChanged || errorChanged) && this._observers) {
+      for (let i = 0; i < this._observers.length; i++) {
+        // If the value or error changed, we know downstream computations must rerun
+        // If only the loading state changed, then we only need to check downstream computations
+        // because updateIfNecessary will update their loading states
+        this._observers[i]._notify(
+          valueChanged || errorChanged ? STATE_DIRTY : STATE_CHECK
+        )
       }
     }
 
@@ -305,38 +260,14 @@ export class Computation<T = any>
    * to or from a loading state
    */
   _setIsWaiting(waiting: boolean): void {
-    // Check if changing the waiting state will change the overall loading state
-    // If it will, then we need to notify _loading observers that the loading state has changed
-    const oldWaiting = this._stateFlags & WAITING_BIT
-    const wasWaiting = oldWaiting !== 0
-    if (waiting != wasWaiting) {
-      this._loading?.set(waiting)
-      this._stateFlags ^= WAITING_BIT
-
-      if (this._observers) {
-        for (let i = 0; i < this._observers.length; i++) {
-          this._observers[i]._notify(STATE_CHECK)
-        }
-      }
-    }
+    const newFlags = waiting
+      ? this._stateFlags | WAITING_BIT
+      : this._stateFlags & ~WAITING_BIT
+    this.write(UNCHANGED, newFlags)
   }
 
   _setError(error: unknown): void {
-    // If we are not in an error state, then our error state is changing so notify _error observers
-    if ((this._stateFlags & ERROR_BIT) === 0) {
-      this._error?._notify(STATE_DIRTY)
-      this._stateFlags |= ERROR_BIT
-    }
-
-    if (this._value !== error && this._observers) {
-      for (let i = 0; i < this._observers.length; i++) {
-        this._observers[i]._notify(STATE_DIRTY)
-      }
-    }
-
-    // Store the error value in _value
-    // this is an optimization to avoid having an extra field because we know _value is not used
-    this._value = error as T
+    this.write(error as T, this._stateFlags | ERROR_BIT)
   }
 
   /**
@@ -408,7 +339,7 @@ export class Computation<T = any>
 
   /** Needed so that we can read whether _sources are loading in _updateIfNecessary */
   _isLoading(): boolean {
-    return (this._stateFlags & WAITING_BIT) !== 0 || this._promise !== null
+    return (this._stateFlags & WAITING_BIT) !== 0
   }
 
   /**
@@ -561,10 +492,8 @@ export function update<T>(node: Computation<T>): void {
     const result = compute(node, node._compute!, node)
 
     // Update the node's value
-    node.write(result)
-
-    // newLoadingState coallecesses if any of the sources we read were loading
-    node._setIsWaiting(newLoadingState)
+    const loadingFlag = newLoadingState ? WAITING_BIT : 0
+    node.write(result, loadingFlag)
   } catch (error) {
     node._setError(error)
   } finally {
@@ -631,14 +560,6 @@ function removeSourceObservers(node: ObserverType, index: number): void {
   }
 }
 
-// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise#thenables
-function isPromise(v: unknown): v is Promise<unknown> {
-  return (
-    (typeof v === 'object' || typeof v === 'function') &&
-    typeof (v as any)?.then === 'function' // eslint-disable-line
-  )
-}
-
 function isEqual<T>(a: T, b: T): boolean {
   return a === b
 }
@@ -658,9 +579,9 @@ export function untrack<T>(fn: () => T): T {
  */
 export function compute<T>(
   owner: Owner | null,
-  compute: (val: T) => T | Promise<T>,
+  compute: (val: T) => T,
   observer: Computation<T>
-): T | Promise<T>
+): T
 export function compute<T>(
   owner: Owner | null,
   compute: (val: undefined) => T,
@@ -668,14 +589,9 @@ export function compute<T>(
 ): T
 export function compute<T>(
   owner: Owner | null,
-  compute: (val: undefined) => T | Promise<T>,
-  observer: null
-): T | Promise<T>
-export function compute<T>(
-  owner: Owner | null,
-  compute: (val?: T) => T | Promise<T>,
+  compute: (val?: T) => T,
   observer: Computation<T> | null
-): T | Promise<T> {
+): T {
   const prevOwner = setCurrentOwner(owner)
   const prevObserver = currentObserver
   currentObserver = observer
