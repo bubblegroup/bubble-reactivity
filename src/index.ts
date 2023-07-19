@@ -1,7 +1,8 @@
-import { Computation, compute } from './core'
-import { HANDLER, Owner, handleError } from './owner'
 import type { MemoOptions, SignalOptions } from './core'
+import { Computation, compute, UNCHANGED } from './core'
 import { Effect } from './effect'
+import { ERROR_BIT, LOADING_BIT } from './flags'
+import { handleError, HANDLER, Owner } from './owner'
 
 export type Accessor<T> = () => T
 export type Setter<T> = (value: T) => T
@@ -18,6 +19,55 @@ export function createSignal<T>(
 ): Signal<T> {
   const node = new Computation(initialValue, null, options)
   return [() => node.read(), (v) => node.write(v)]
+}
+
+export function _createPromise<T>(
+  promise: Promise<T>,
+  initial?: T,
+  options?: SignalOptions<T>
+): Computation<T> {
+  const signal = new Computation(initial, null, options)
+  signal.write(UNCHANGED, LOADING_BIT)
+  promise.then(
+    (value) => {
+      signal.write(value, 0)
+    },
+    (error) => {
+      signal.write(error as T, ERROR_BIT)
+    }
+  )
+  return signal
+}
+
+export function createPromise<T>(
+  promise: Promise<T>,
+  initial?: T,
+  options?: SignalOptions<T>
+): Accessor<T> {
+  const signal = _createPromise(promise, initial, options)
+  return () => signal.read()
+}
+
+export function _createAsync<T>(
+  fn: () => Promise<T>,
+  initial?: T,
+  options?: SignalOptions<T>
+): Computation<T> {
+  const lhs = new Computation(undefined, () => {
+    const promise = Promise.resolve(fn())
+    return _createPromise(promise, initial)
+  })
+  const rhs = new Computation(undefined, () => lhs.read().read(), options)
+  return rhs
+}
+
+export function createAsync<T>(
+  fn: () => Promise<T>,
+  initial?: T,
+  options?: SignalOptions<T>
+): Accessor<T> {
+  const rhs = _createAsync(fn, initial, options)
+  return () => rhs.read()
 }
 
 /**
@@ -100,5 +150,5 @@ export function catchError<T, U = Error>(
 }
 
 export { untrack } from './core'
-export { onCleanup, getOwner } from './owner'
 export { flushSync } from './effect'
+export { getOwner, onCleanup } from './owner'
