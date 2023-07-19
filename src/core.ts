@@ -48,21 +48,16 @@ export interface MemoOptions<T> extends SignalOptions<T> {
 
 interface SourceType {
   _observers: ObserverType[] | null
-  _stateFlags: Flags
   _updateIfNecessary: () => void
 
-  // Needed to lazily update to not loading
-  _isLoading: () => boolean
+  _stateFlags: Flags
 }
 
 interface ObserverType {
   _sources: SourceType[] | null
-  _handlerMask: Flags
-
   _notify: (state: number) => void
 
-  // Needed to eagerly tell observers that their sources are currently loading
-  // (and thus they are too)
+  _handlerMask: Flags
   _notifyFlags: (mask: Flags, newFlags: Flags) => void
 }
 
@@ -346,11 +341,6 @@ export class Computation<T = any>
       // None of our parents changed value, so our value is up to date (STATE_CLEAN)
       this._state = STATE_CLEAN
     }
-  }
-
-  /** Needed so that we can read whether _sources are loading in _updateIfNecessary */
-  _isLoading(): boolean {
-    return (this._stateFlags & LOADING_BIT) !== 0
   }
 
   /**
