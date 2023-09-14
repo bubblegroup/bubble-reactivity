@@ -20,19 +20,19 @@
     "coverage": "vitest run --coverage"
   },
   "devDependencies": {
-    "@types/node": "^20.2.3",
-    "@typescript-eslint/eslint-plugin": "^5.59.7",
-    "@typescript-eslint/parser": "^5.59.7",
-    "@vitest/coverage-c8": "^0.31.1",
-    "eslint": "^8.41.0",
-    "eslint-config-prettier": "^8.8.0",
+    "@types/node": "^20.6.0",
+    "@typescript-eslint/eslint-plugin": "^5.62.0",
+    "@typescript-eslint/parser": "^5.62.0",
+    "@vitest/coverage-c8": "^0.31.4",
+    "eslint": "^8.49.0",
+    "eslint-config-prettier": "^8.10.0",
     "eslint-plugin-simple-import-sort": "^10.0.0",
     "prettier": "^2.8.8",
     "rimraf": "^5.0.1",
     "tsup": "^6.7.0",
     "typescript": "5.0.4",
-    "vite": "^4.3.8",
-    "vitest": "^0.31.1"
+    "vite": "^4.4.9",
+    "vitest": "^0.31.4"
   },
   "exports": {
     ".": {
