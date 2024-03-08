@@ -16,7 +16,7 @@
     "format": "prettier --write .",
     "test": "vitest",
     "lint": "eslint .",
-    "gc": "node --expose-gc ./vitest.js",
+    "gc": "node --expose-gc ./vitest_gc.js",
     "coverage": "vitest run --coverage"
   },
   "devDependencies": {
