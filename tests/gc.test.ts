@@ -14,13 +14,13 @@ function gc() {
   return new Promise((resolve) =>
     setTimeout(() => {
       flushSync() // flush call stack (holds a reference)
-      global.gc!()
+      globalThis.gc!()
       resolve(void 0)
     }, 0)
   )
 }
 
-if (global.gc) {
+if (globalThis.gc) {
   it('should gc computed if there are no observers', async () => {
     const [$x] = createSignal(0)
     const ref = new WeakRef(createMemo(() => $x()))
